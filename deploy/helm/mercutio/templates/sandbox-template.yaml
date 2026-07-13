@@ -1,0 +1,43 @@
+{{- if .Values.sandbox.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mercutio.fullname" . }}-sandbox-template
+  labels:
+    {{- include "mercutio.labels" . | nindent 4 }}
+data:
+  pod-template.yaml: |
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      labels:
+        mercutio.dev/managed: "true"
+        mercutio.dev/cell-id: "{{`{{CELL_ID}}`}}"
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: materialize-graft-worktree
+          image: {{ .Values.sandbox.graftImage }}
+          args: ["worktree", "materialize", "--repo", "{{`{{REPO_URL}}`}}", "--branch", "{{`{{BRANCH}}`}}", "--out", "/workspace"]
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+      containers:
+        - name: agent
+          image: {{ .Values.sandbox.agentImage }}
+          env:
+            - name: MERCUTIO_CELL_ID
+              value: "{{`{{CELL_ID}}`}}"
+            - name: MERCUTIO_HUB_URL
+              value: "{{`{{HUB_URL}}`}}"
+          resources:
+            limits:
+              cpu: {{ .Values.sandbox.cpuLimit | quote }}
+              memory: {{ .Values.sandbox.memoryLimit | quote }}
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+      volumes:
+        - name: workspace
+          emptyDir: {}
+{{- end }}

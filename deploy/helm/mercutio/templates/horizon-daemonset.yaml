@@ -1,0 +1,29 @@
+{{- if .Values.horizon.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "mercutio.fullname" . }}-horizon
+  labels:
+    {{- include "mercutio.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "mercutio.name" . }}-horizon
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "mercutio.name" . }}-horizon
+    spec:
+      serviceAccountName: {{ .Values.horizon.serviceAccountName }}
+      hostPID: true
+      containers:
+        - name: horizon
+          image: {{ .Values.horizon.image }}
+          securityContext:
+            privileged: true
+            capabilities:
+              add: [BPF, PERFMON, SYS_RESOURCE]
+          env:
+            - name: HORIZON_EVENT_SINK
+              value: "{{ include "mercutio.fullname" . }}:9011"
+{{- end }}

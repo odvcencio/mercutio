@@ -1,0 +1,42 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/odvcencio/mercutio
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 9011
+
+operator:
+  devMode: "0"
+  tokenSecret:
+    name: mercutio-operator-token
+    key: token
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 1
+    memory: 512Mi
+
+sandbox:
+  enabled: true
+  agentImage: ghcr.io/odvcencio/mercutio-agent:latest
+  graftImage: ghcr.io/odvcencio/graft:latest
+  cpuLimit: "2"
+  memoryLimit: 2Gi
+
+quota:
+  enabled: true
+  pods: "20"
+  cpu: "10"
+  memory: 20Gi
+
+horizon:
+  enabled: false
+  image: ghcr.io/odvcencio/horizon:latest
+  serviceAccountName: mercutio-horizon

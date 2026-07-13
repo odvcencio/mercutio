@@ -1,0 +1,6 @@
+apiVersion: v2
+name: mercutio
+description: Sandbox-first control plane and watching-first agent viewport
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
