@@ -92,6 +92,7 @@ func TestProductionConfigurationRequiresStableSessionAndOperatorIdentity(t *test
 	}
 	t.Setenv("MERCUTIO_SESSION_SECRET", "a-stable-production-session-secret-with-enough-entropy")
 	t.Setenv("MERCUTIO_OPERATOR_EMAIL", "operator@example.test")
+	t.Setenv("MERCUTIO_AUTH_STATE_PATH", t.TempDir()+"/passkeys.json")
 	if err := FromEnv().Validate(); err != nil {
 		t.Fatalf("valid production auth: %v", err)
 	}
@@ -122,6 +123,7 @@ func TestProductionSessionCookieHasSecurityAttributes(t *testing.T) {
 	t.Setenv("MERCUTIO_DEV_MODE", "0")
 	t.Setenv("MERCUTIO_SESSION_SECRET", "a-stable-production-session-secret-with-enough-entropy")
 	t.Setenv("MERCUTIO_OPERATOR_EMAIL", "operator@example.test")
+	t.Setenv("MERCUTIO_AUTH_STATE_PATH", t.TempDir()+"/passkeys.json")
 	authn := FromEnv()
 	handler := authn.SessionMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = authn.CSRFToken(r)

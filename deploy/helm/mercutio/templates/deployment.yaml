@@ -98,6 +98,8 @@ spec:
               value: /var/lib/mercutio/evidence.jsonl
             - name: MERCUTIO_STATE_PATH
               value: /var/lib/mercutio/state.json
+            - name: MERCUTIO_AUTH_STATE_PATH
+              value: /var/lib/mercutio/passkeys.json
             - name: MERCUTIO_INTERNAL_TLS_ADDR
               value: ":{{ .Values.internalTLS.port }}"
             - name: MERCUTIO_INTERNAL_TLS_CERT

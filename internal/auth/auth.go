@@ -65,6 +65,19 @@ func FromEnv() *Auth {
 	if authn.sessions == nil {
 		return authn
 	}
+	var passkeyStore gosxauth.WebAuthnStore
+	authStatePath := strings.TrimSpace(os.Getenv("MERCUTIO_AUTH_STATE_PATH"))
+	if authStatePath == "" && !authn.devMode {
+		authn.configurationError = fmt.Errorf("MERCUTIO_AUTH_STATE_PATH is required outside development mode")
+	}
+	if authStatePath != "" {
+		store, err := newFileWebAuthnStore(authStatePath)
+		if err != nil {
+			authn.configurationError = fmt.Errorf("load passkey state: %w", err)
+		} else {
+			passkeyStore = store
+		}
+	}
 	authn.manager = gosxauth.New(authn.sessions, gosxauth.Options{LoginPath: "/login"})
 	sender, senderConfigured, senderErr := smtpMagicLinkSenderFromEnv()
 	if senderErr != nil {
@@ -84,6 +97,7 @@ func FromEnv() *Auth {
 		FailurePath:      "/login",
 		UserVerification: "preferred",
 		Resolver:         gosxauth.WebAuthnResolverFunc(authn.resolveOperator),
+		Store:            passkeyStore,
 	})
 	return authn
 }
