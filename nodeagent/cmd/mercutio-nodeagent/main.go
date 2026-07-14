@@ -19,8 +19,6 @@ import (
 	"syscall"
 	"time"
 
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	continuumhorizon "m31labs.dev/continuum/horizon"
 	"m31labs.dev/mercutio/nodeagent/internal/agent"
 )
@@ -48,14 +46,6 @@ func run() error {
 	keys, err := readKeys(envOr("MERCUTIO_HORIZON_PUBLIC_KEYS", "/etc/mercutio/trust/public-keys.json"))
 	if err != nil {
 		return err
-	}
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		return fmt.Errorf("Kubernetes in-cluster config: %w", err)
-	}
-	client, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return fmt.Errorf("Kubernetes client: %w", err)
 	}
 	control := agent.HTTPControl{BaseURL: controlURL, Token: token}
 	mtlsClient, err := newMTLSClient(
@@ -89,7 +79,7 @@ func run() error {
 	go func() { errorsCh <- queue.Run(ctx) }()
 	go pollActionDecisions(ctx, nodeID, control, manager)
 	runner := &agent.Agent{
-		Source: agent.KubernetesSource{Client: client, NodeID: nodeID, CgroupRoot: envOr("MERCUTIO_CGROUP_ROOT", "/sys/fs/cgroup")},
+		Source: agent.ControlSource{Control: control, NodeID: nodeID, CgroupRoot: envOr("MERCUTIO_CGROUP_ROOT", "/sys/fs/cgroup")},
 		Loader: manager, Control: control, Interval: time.Duration(envInt("MERCUTIO_RECONCILE_MS", 2000)) * time.Millisecond,
 	}
 	go func() { errorsCh <- runner.Run(ctx) }()

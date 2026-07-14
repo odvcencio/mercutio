@@ -2179,6 +2179,14 @@ func (s *Store) State(connected int) model.State {
 	return state
 }
 
+func (s *Store) NodeCells(ctx context.Context, nodeID string) ([]sandbox.NodeCell, error) {
+	source, ok := s.runtime.(sandbox.NodeCellSource)
+	if !ok {
+		return nil, fmt.Errorf("sandbox runtime does not expose node cell discovery")
+	}
+	return source.NodeCells(ctx, nodeID)
+}
+
 func (s *Store) Documents(id string) map[string]*crdt.Doc {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

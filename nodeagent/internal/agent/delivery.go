@@ -155,6 +155,34 @@ type HTTPControl struct {
 	Client  *http.Client
 }
 
+func (h HTTPControl) Cells(ctx context.Context, nodeID string) ([]Cell, error) {
+	endpoint := strings.TrimRight(h.BaseURL, "/") + "/api/internal/nodes/" + nodeID + "/cells"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("X-Mercutio-Event-Token", h.Token)
+	client := h.Client
+	if client == nil {
+		client = &http.Client{Timeout: 15 * time.Second}
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("control plane returned %s", response.Status)
+	}
+	var payload struct {
+		Cells []Cell `json:"cells"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	return payload.Cells, nil
+}
+
 func (h HTTPControl) Armed(ctx context.Context, cell Cell, result ArmResult) error {
 	payload, _ := json.Marshal(map[string]any{
 		"nodeID": cell.NodeID, "programs": result.Programs, "manifestDigest": result.ManifestDigest,

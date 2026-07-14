@@ -201,6 +201,21 @@ func (h *Handler) NodeActionDecisions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"decisions": h.store.TakeNodeActionDecisions(parts[3])})
 }
 
+func (h *Handler) NodeCells(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) != 5 || parts[0] != "api" || parts[1] != "internal" || parts[2] != "nodes" || parts[4] != "cells" || strings.TrimSpace(parts[3]) == "" {
+		errorJSON(w, http.StatusBadRequest, fmt.Errorf("invalid node cells path"))
+		return
+	}
+	cells, err := h.store.NodeCells(r.Context(), parts[3])
+	if err != nil {
+		errorJSON(w, http.StatusServiceUnavailable, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]any{"cells": cells})
+}
+
 func dangerAxes(values map[string]string) model.DangerAxes {
 	return model.DangerAxes{Mode: values["mode"], Scope: values["scope"], Reversibility: values["reversibility"]}
 }

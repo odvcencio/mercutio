@@ -7,28 +7,6 @@ metadata:
     {{- include "mercutio.labels" . | nindent 4 }}
 automountServiceAccountToken: false
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: {{ include "mercutio.fullname" . }}-nodeagent
-rules:
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: {{ include "mercutio.fullname" . }}-nodeagent
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "mercutio.fullname" . }}-nodeagent
-    namespace: {{ .Release.Namespace }}
-roleRef:
-  kind: ClusterRole
-  name: {{ include "mercutio.fullname" . }}-nodeagent
-  apiGroup: rbac.authorization.k8s.io
----
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -117,9 +95,6 @@ spec:
             - name: mtls
               mountPath: /etc/mercutio/mtls
               readOnly: true
-            - name: kube-api-access
-              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
-              readOnly: true
             - name: scratch
               mountPath: /tmp
       volumes:
@@ -143,23 +118,6 @@ spec:
           secret:
             secretName: {{ .Values.nodeAgent.mtlsSecret }}
             optional: false
-        - name: kube-api-access
-          projected:
-            defaultMode: 420
-            sources:
-              - serviceAccountToken:
-                  path: token
-                  expirationSeconds: 3600
-              - configMap:
-                  name: kube-root-ca.crt
-                  items:
-                    - key: ca.crt
-                      path: ca.crt
-              - downwardAPI:
-                  items:
-                    - path: namespace
-                      fieldRef:
-                        fieldPath: metadata.namespace
         - name: scratch
           emptyDir:
             sizeLimit: 64Mi

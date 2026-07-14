@@ -115,6 +115,22 @@ func TestKubernetesRuntimeListsOnlyManagedPods(t *testing.T) {
 	}
 }
 
+func TestKubernetesRuntimeNodeCellsReturnsMinimalEnforcementMetadata(t *testing.T) {
+	manifest := `{"profile":"strict","profileDigest":"sha256:profile","egress":["control:8443"],"programs":["GateExec"]}`
+	client := fake.NewSimpleClientset(
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "managed", Namespace: "cells", UID: "pod-uid", Labels: map[string]string{"mercutio.dev/managed": "true", "mercutio.dev/cell-id": "cell-a", "mercutio.dev/profile": "strict"}, Annotations: map[string]string{"mercutio.dev/workspace-device": "11", "mercutio.dev/scratch-device": "12", "mercutio.dev/runtime-device": "13", "mercutio.dev/capability-manifest": manifest}}, Spec: corev1.PodSpec{NodeName: "node-a"}},
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "other-node", Namespace: "cells", Labels: map[string]string{"mercutio.dev/managed": "true", "mercutio.dev/cell-id": "cell-b"}}, Spec: corev1.PodSpec{NodeName: "node-b"}},
+	)
+	runtime := NewKubernetesRuntime(client, KubernetesRuntimeOptions{Namespace: "cells"})
+	cells, err := runtime.NodeCells(t.Context(), "node-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cells) != 1 || cells[0].ID != "cell-a" || cells[0].NodeID != "node-a" || cells[0].PodUID != "pod-uid" || cells[0].WorktreeDev != 11 || cells[0].ProfileDigest != "sha256:profile" || len(cells[0].Programs) != 1 {
+		t.Fatalf("cells=%+v", cells)
+	}
+}
+
 func TestKubernetesRuntimeRendersTemplate(t *testing.T) {
 	dynamicClient := dynamicfake.NewSimpleDynamicClient(k8sruntime.NewScheme())
 	client := fake.NewSimpleClientset(&corev1.ConfigMap{

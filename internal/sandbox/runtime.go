@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -78,6 +79,25 @@ type MountDevices struct {
 
 type MountDeviceRecorder interface {
 	RecordMountDevices(context.Context, string, MountDevices) error
+}
+
+type NodeCell struct {
+	ID            string   `json:"id"`
+	Namespace     string   `json:"namespace"`
+	PodName       string   `json:"podName"`
+	PodUID        string   `json:"podUID"`
+	Profile       string   `json:"profile"`
+	NodeID        string   `json:"nodeID"`
+	WorktreeDev   uint64   `json:"worktreeDev"`
+	ScratchDev    uint64   `json:"scratchDev"`
+	RuntimeDev    uint64   `json:"runtimeDev"`
+	AllowedEgress []string `json:"allowedEgress"`
+	Programs      []string `json:"programs"`
+	ProfileDigest string   `json:"profileDigest"`
+}
+
+type NodeCellSource interface {
+	NodeCells(context.Context, string) ([]NodeCell, error)
 }
 
 // PolicyFinalizer promotes network enforcement only after the Node Agent has
@@ -438,6 +458,40 @@ func (r *KubernetesRuntime) findCellPod(ctx context.Context, cellID string) (str
 		return "", nil, ErrNotFound
 	}
 	return namespace, live, nil
+}
+
+// NodeCells is the sole Kubernetes discovery boundary for the host watchman.
+// The Node Agent receives only the metadata needed to resolve local cgroups and
+// populate enforcement maps; it never receives Kubernetes credentials.
+func (r *KubernetesRuntime) NodeCells(ctx context.Context, nodeID string) ([]NodeCell, error) {
+	if r == nil || r.client == nil || strings.TrimSpace(nodeID) == "" {
+		return nil, fmt.Errorf("Kubernetes runtime and node ID are required")
+	}
+	var result []NodeCell
+	for _, namespace := range r.cellNamespaces() {
+		pods, err := r.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{FieldSelector: "spec.nodeName=" + nodeID, LabelSelector: "mercutio.dev/managed=true"})
+		if err != nil {
+			return nil, fmt.Errorf("list node cells in %s: %w", namespace, err)
+		}
+		for _, pod := range pods.Items {
+			if pod.DeletionTimestamp != nil {
+				continue
+			}
+			cellID := pod.Labels["mercutio.dev/cell-id"]
+			worktreeDev, workErr := strconv.ParseUint(pod.Annotations["mercutio.dev/workspace-device"], 10, 64)
+			scratchDev, scratchErr := strconv.ParseUint(pod.Annotations["mercutio.dev/scratch-device"], 10, 64)
+			runtimeDev, runtimeErr := strconv.ParseUint(pod.Annotations["mercutio.dev/runtime-device"], 10, 64)
+			if cellID == "" || workErr != nil || scratchErr != nil || runtimeErr != nil || worktreeDev == 0 || scratchDev == 0 || runtimeDev == 0 {
+				continue
+			}
+			var manifest policy.Manifest
+			if err := json.Unmarshal([]byte(pod.Annotations["mercutio.dev/capability-manifest"]), &manifest); err != nil || manifest.ProfileDigest == "" {
+				continue
+			}
+			result = append(result, NodeCell{ID: cellID, Namespace: pod.Namespace, PodName: pod.Name, PodUID: string(pod.UID), Profile: defaultValue(pod.Labels["mercutio.dev/profile"], "standard"), NodeID: nodeID, WorktreeDev: worktreeDev, ScratchDev: scratchDev, RuntimeDev: runtimeDev, AllowedEgress: append([]string(nil), manifest.Egress...), Programs: append([]string(nil), manifest.Programs...), ProfileDigest: manifest.ProfileDigest})
+		}
+	}
+	return result, nil
 }
 
 func (r *KubernetesRuntime) Delete(ctx context.Context, cellID string) error {

@@ -49,3 +49,43 @@ func TestCellEgressPoliciesExcludeProtectedNetworks(t *testing.T) {
 		t.Fatalf("checked %d profile egress policies, want 6", checked)
 	}
 }
+
+func TestNodeAgentHasNoKubernetesCredentialsOrAPIServerEgress(t *testing.T) {
+	data, err := os.ReadFile("../../deploy/manifests/mercutio.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := string(data)
+	if strings.Contains(manifest, "name: kube-api-access") || strings.Contains(manifest, "kind: ClusterRole\nmetadata:\n  name: mercutio-nodeagent") || strings.Contains(manifest, "kind: ClusterRoleBinding\nmetadata:\n  name: mercutio-nodeagent") {
+		t.Fatal("nodeagent manifest grants Kubernetes API credentials or RBAC")
+	}
+
+	decoder := yaml.NewYAMLOrJSONDecoder(strings.NewReader(manifest), 4096)
+	checked := 0
+	for {
+		var policy networkingv1.NetworkPolicy
+		if err := decoder.Decode(&policy); err != nil {
+			if err == io.EOF {
+				break
+			}
+			t.Fatal(err)
+		}
+		if policy.Kind != "NetworkPolicy" || !strings.HasSuffix(policy.Name, "-nodeagent-egress") {
+			continue
+		}
+		checked++
+		if len(policy.Spec.Egress) != 2 {
+			t.Fatalf("nodeagent must egress only to control plane and DNS: %+v", policy.Spec.Egress)
+		}
+		for _, rule := range policy.Spec.Egress {
+			for _, peer := range rule.To {
+				if peer.IPBlock != nil {
+					t.Fatalf("nodeagent has direct IP egress: %+v", peer.IPBlock)
+				}
+			}
+		}
+	}
+	if checked != 1 {
+		t.Fatalf("checked %d nodeagent egress policies, want 1", checked)
+	}
+}

@@ -6,22 +6,22 @@ import (
 )
 
 type Cell struct {
-	ID            string
-	Namespace     string
-	PodName       string
-	PodUID        string
-	ContainerID   string
-	Profile       string
-	NodeID        string
-	CgroupPath    string
-	CgroupID      uint64
-	CgroupIDs     []uint64
-	WorktreeDev   uint64
-	ScratchDev    uint64
-	RuntimeDev    uint64
-	AllowedEgress []string
-	Programs      []string
-	ProfileDigest string
+	ID            string   `json:"id"`
+	Namespace     string   `json:"namespace"`
+	PodName       string   `json:"podName"`
+	PodUID        string   `json:"podUID"`
+	ContainerID   string   `json:"containerID,omitempty"`
+	Profile       string   `json:"profile"`
+	NodeID        string   `json:"nodeID"`
+	CgroupPath    string   `json:"cgroupPath,omitempty"`
+	CgroupID      uint64   `json:"cgroupID,omitempty"`
+	CgroupIDs     []uint64 `json:"cgroupIDs,omitempty"`
+	WorktreeDev   uint64   `json:"worktreeDev"`
+	ScratchDev    uint64   `json:"scratchDev"`
+	RuntimeDev    uint64   `json:"runtimeDev"`
+	AllowedEgress []string `json:"allowedEgress"`
+	Programs      []string `json:"programs"`
+	ProfileDigest string   `json:"profileDigest"`
 }
 
 type ArmResult struct {

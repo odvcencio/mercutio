@@ -2,74 +2,49 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/client-go/kubernetes"
 )
 
-type KubernetesSource struct {
-	Client     kubernetes.Interface
+type ControlSource struct {
+	Control    HTTPControl
 	NodeID     string
 	CgroupRoot string
 }
 
-func (s KubernetesSource) ListCells(ctx context.Context) ([]Cell, error) {
-	if s.Client == nil || strings.TrimSpace(s.NodeID) == "" {
-		return nil, fmt.Errorf("Kubernetes client and node ID are required")
+func (s ControlSource) ListCells(ctx context.Context) ([]Cell, error) {
+	if strings.TrimSpace(s.Control.BaseURL) == "" || strings.TrimSpace(s.NodeID) == "" {
+		return nil, fmt.Errorf("control plane and node ID are required")
 	}
-	pods, err := s.Client.CoreV1().Pods("").List(ctx, metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector("spec.nodeName", s.NodeID).String()})
+	cells, err := s.Control.Cells(ctx, s.NodeID)
 	if err != nil {
-		return nil, fmt.Errorf("list node sandbox pods: %w", err)
+		return nil, fmt.Errorf("list node cells: %w", err)
 	}
 	root := s.CgroupRoot
 	if root == "" {
 		root = "/sys/fs/cgroup"
 	}
-	result := make([]Cell, 0)
-	for _, pod := range pods.Items {
-		if pod.Labels["mercutio.m31labs.dev/component"] != "cell" && pod.Labels["mercutio.dev/managed"] != "true" {
+	result := make([]Cell, 0, len(cells))
+	for _, cell := range cells {
+		if strings.TrimSpace(cell.ID) == "" || strings.TrimSpace(cell.PodUID) == "" || cell.NodeID != s.NodeID {
 			continue
 		}
-		cellID := pod.Labels["mercutio.dev/cell-id"]
-		if cellID == "" || pod.DeletionTimestamp != nil {
+		if cell.WorktreeDev == 0 || cell.ScratchDev == 0 || cell.RuntimeDev == 0 {
 			continue
 		}
-		cgroupPath, cgroupIDs, err := ResolvePodCgroups(root, string(pod.UID))
+		cgroupPath, cgroupIDs, err := ResolvePodCgroups(root, cell.PodUID)
 		if err != nil {
 			continue
 		}
-		worktreeDev, err := strconv.ParseUint(pod.Annotations["mercutio.dev/workspace-device"], 10, 64)
-		if err != nil || worktreeDev == 0 {
-			continue
-		}
-		scratchDev, err := strconv.ParseUint(pod.Annotations["mercutio.dev/scratch-device"], 10, 64)
-		if err != nil || scratchDev == 0 {
-			continue
-		}
-		runtimeDev, err := strconv.ParseUint(pod.Annotations["mercutio.dev/runtime-device"], 10, 64)
-		if err != nil || runtimeDev == 0 {
-			continue
-		}
-		var policy struct {
-			Egress        []string `json:"egress"`
-			Programs      []string `json:"programs"`
-			ProfileDigest string   `json:"profileDigest"`
-		}
-		_ = json.Unmarshal([]byte(pod.Annotations["mercutio.dev/capability-manifest"]), &policy)
-		result = append(result, Cell{
-			ID: cellID, Namespace: pod.Namespace, PodName: pod.Name, PodUID: string(pod.UID),
-			Profile: defaultString(pod.Labels["mercutio.dev/profile"], "standard"), NodeID: s.NodeID,
-			CgroupPath: cgroupPath, CgroupID: cgroupIDs[0], CgroupIDs: cgroupIDs, WorktreeDev: worktreeDev, ScratchDev: scratchDev, RuntimeDev: runtimeDev, AllowedEgress: append([]string(nil), policy.Egress...), Programs: append([]string(nil), policy.Programs...), ProfileDigest: policy.ProfileDigest,
-		})
+		cell.CgroupPath = cgroupPath
+		cell.CgroupID = cgroupIDs[0]
+		cell.CgroupIDs = cgroupIDs
+		cell.Profile = defaultString(cell.Profile, "standard")
+		result = append(result, cell)
 	}
 	return result, nil
 }

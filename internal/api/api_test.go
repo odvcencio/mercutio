@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,8 +13,35 @@ import (
 	"time"
 
 	"m31labs.dev/mercutio/internal/cell"
+	"m31labs.dev/mercutio/internal/sandbox"
 	"m31labs.dev/mercutio/internal/transport"
 )
+
+type nodeCellRuntime struct {
+	*sandbox.MemoryRuntime
+	cells []sandbox.NodeCell
+}
+
+func (r *nodeCellRuntime) NodeCells(_ context.Context, nodeID string) ([]sandbox.NodeCell, error) {
+	var result []sandbox.NodeCell
+	for _, candidate := range r.cells {
+		if candidate.NodeID == nodeID {
+			result = append(result, candidate)
+		}
+	}
+	return result, nil
+}
+
+func TestNodeCellsExposesOnlyNodeScopedEnforcementMetadata(t *testing.T) {
+	runtime := &nodeCellRuntime{MemoryRuntime: sandbox.NewMemoryRuntime(), cells: []sandbox.NodeCell{{ID: "cell-a", PodUID: "pod-a", NodeID: "node-a", WorktreeDev: 11, ScratchDev: 12, RuntimeDev: 13}, {ID: "cell-b", PodUID: "pod-b", NodeID: "node-b"}}}
+	handler := New(cell.NewStoreWithRuntime(runtime), nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/internal/nodes/node-a/cells", nil)
+	response := httptest.NewRecorder()
+	handler.NodeCells(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"id":"cell-a"`) || strings.Contains(response.Body.String(), "cell-b") || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("response=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+}
 
 func TestKernelTelemetryPersistsGzipBatchAndEvidenceGaps(t *testing.T) {
 	store := cell.NewStore()
