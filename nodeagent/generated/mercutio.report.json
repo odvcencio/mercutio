@@ -8,14 +8,14 @@
     "modified": false,
     "go_version": "go1.26.0"
   },
-  "generated_at": "2026-07-14T06:52:05Z",
+  "generated_at": "2026-07-14T07:00:05Z",
   "package": "mercutio",
   "sources": [
     {
       "path": "programs/mercutio.hzn",
       "package": "mercutio",
-      "size": 17441,
-      "sha256": "56a2443a36de17ed83348bc649fe87daa00431b0b61a4b9d58ba82cf439ca1ac"
+      "size": 17999,
+      "sha256": "a934597ac04e65ca072be754b6097aea5ba3a035eb87c38836cb3df64e9e5895"
     }
   ],
   "status": "ok",
@@ -66,20 +66,20 @@
     {
       "path": "generated/mercutio.bpf.c",
       "kind": "bpf_c",
-      "size": 41774,
-      "sha256": "578d3a9b04886c5ca19fc1d2ffd3033e022c031a37e086fd9558a765dd63436d"
+      "size": 42521,
+      "sha256": "2abc80f8975894d4acc64a03c006f745a5788f22257455c79903fbe8026e2b01"
     },
     {
       "path": "generated/mercutio.bpf.o",
       "kind": "bpf_object",
-      "size": 848040,
-      "sha256": "d0941ef1d7bf519dd622836e31d76a1cb83acd910f6bad155d48e3e8809b2588"
+      "size": 849312,
+      "sha256": "63c4aec204fcf1488b41d5ea4f0dab9f7b595883d45ed43954f40aa766d9c709"
     },
     {
       "path": "generated/mercutio.hznmap.json",
       "kind": "source_map",
-      "size": 235820,
-      "sha256": "169bbdb7031c4be58e5906de164a4a398da8e525ebeddc87f0742c9af7cebf3f"
+      "size": 250308,
+      "sha256": "03a0ca3bcf38f0297580fa0a35fcd33ccd7e02d00a93e607e2230a4f822f2da9"
     },
     {
       "path": "generated/mercutio.bindings.go",

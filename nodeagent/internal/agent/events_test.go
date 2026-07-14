@@ -86,3 +86,36 @@ func TestExecMetadataDoesNotDependOnRecordedPath(t *testing.T) {
 		t.Fatalf("tracepoint event metadata = %s %+v", name, programDanger)
 	}
 }
+
+func TestExecPayloadIgnoresFieldsNotWrittenByItsProducer(t *testing.T) {
+	gate := bindings.ExecEvent{Pad: 1, ArgvTrunc: 3}
+	copy(gate.Filename[:], "/usr/bin/go")
+	copy(gate.ArgvHead[:], "stale argv")
+	path, argv, pathTruncated, argvTruncated := execPayload(gate)
+	if path != "" || argv != "" || !pathTruncated || argvTruncated {
+		t.Fatalf("gate payload = path %q argv %q pathTruncated=%t argvTruncated=%t", path, argv, pathTruncated, argvTruncated)
+	}
+
+	trace := bindings.ExecEvent{Pad: 0, ArgvTrunc: 3}
+	copy(trace.Filename[:], "stale path")
+	copy(trace.ArgvHead[:], "go\x00test")
+	path, argv, pathTruncated, argvTruncated = execPayload(trace)
+	if path != "" || argv != "go test" || pathTruncated || !argvTruncated {
+		t.Fatalf("trace payload = path %q argv %q pathTruncated=%t argvTruncated=%t", path, argv, pathTruncated, argvTruncated)
+	}
+}
+
+func TestFilePayloadIgnoresPathWhenHelperFailed(t *testing.T) {
+	raw := bindings.FileEvent{PathTrunc: 1}
+	copy(raw.Path[:], "/stale/secret")
+	path, truncated := filePayload(raw)
+	if path != "" || !truncated {
+		t.Fatalf("file payload = path %q truncated=%t", path, truncated)
+	}
+
+	raw.PathTrunc = 0
+	path, truncated = filePayload(raw)
+	if path != "/stale/secret" || truncated {
+		t.Fatalf("file payload = path %q truncated=%t", path, truncated)
+	}
+}

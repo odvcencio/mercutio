@@ -29,9 +29,7 @@ func (m *ProgramManager) readExecEvents(programs *classPrograms) {
 			return nil
 		}
 		event.Kind = "exec"
-		event.Path = nulString(raw.Filename[:])
-		event.Argv = argvString(raw.ArgvHead[:])
-		event.ArgvTruncated = raw.ArgvTrunc != 0
+		event.Path, event.Argv, event.PathTruncated, event.ArgvTruncated = execPayload(raw)
 		event.Program, event.ProgramDanger = execProgramMetadata(raw.Pad)
 		event.ActionDanger = danger("mutate", "process", "restart")
 		m.options.Queue.Enqueue(event)
@@ -40,6 +38,16 @@ func (m *ProgramManager) readExecEvents(programs *classPrograms) {
 	if err != nil && programs.readerCtx.Err() == nil {
 		m.options.Queue.AddKernelDrops(fmt.Sprintf("class-%d-exec-reader", programs.class), 1)
 	}
+}
+
+func execPayload(raw bindings.ExecEvent) (path, argv string, pathTruncated, argvTruncated bool) {
+	if raw.Pad == 1 {
+		if raw.ArgvTrunc&2 != 0 {
+			return "", "", true, false
+		}
+		return nulString(raw.Filename[:]), "", false, false
+	}
+	return "", argvString(raw.ArgvHead[:]), false, raw.ArgvTrunc&1 != 0
 }
 
 func execProgramMetadata(source uint32) (string, map[string]string) {
@@ -61,8 +69,7 @@ func (m *ProgramManager) readFileEvents(programs *classPrograms) {
 			return nil
 		}
 		event.Kind = "file"
-		event.Path = nulString(raw.Path[:])
-		event.PathTruncated = raw.PathTrunc != 0
+		event.Path, event.PathTruncated = filePayload(raw)
 		event.Flags, event.Mode, event.Operation = raw.Flags, raw.Mode, raw.Op
 		event.Program, event.ProgramDanger = fileProgramMetadata(programs.class)
 		event.ActionDanger = danger(fileMode(raw.Flags), "filesystem", "restart")
@@ -72,6 +79,13 @@ func (m *ProgramManager) readFileEvents(programs *classPrograms) {
 	if err != nil && programs.readerCtx.Err() == nil {
 		m.options.Queue.AddKernelDrops(fmt.Sprintf("class-%d-file-reader", programs.class), 1)
 	}
+}
+
+func filePayload(raw bindings.FileEvent) (path string, truncated bool) {
+	if raw.PathTrunc != 0 {
+		return "", true
+	}
+	return nulString(raw.Path[:]), false
 }
 
 func (m *ProgramManager) readConnectEvents(programs *classPrograms) {

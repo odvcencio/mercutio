@@ -546,8 +546,10 @@ int OnExec(struct trace_event_raw_sched_process_exec *ctx) {
     event->hdr.ppid = hzn_current_ppid();
     event->hdr.tgid = event->hdr.pid;
     event->hdr.uid = hzn_current_uid();
+    event->hdr.seq = 0;
     event->hdr.kind = 1;
     event->hdr.verdict = 0;
+    event->argv_trunc = 0;
     event->pad = 0;
     hzn_current_comm(&event->hdr.comm, sizeof(event->hdr.comm));
     __s64 argv_len = hzn_current_argv(&event->argv_head, sizeof(event->argv_head));
@@ -575,8 +577,9 @@ int GateExec(void *ctx) {
         return HZN_LSM_DENY;
     }
     __u32 verdict = (__u32)(0);
+    event->argv_trunc = 0;
     if (hzn_lsm_bprm_filename(ctx, &event->filename, sizeof(event->filename)) < 0) {
-        event->argv_trunc = 1;
+        event->argv_trunc = 2;
     }
     __u64 exec_dev = hzn_lsm_bprm_dev(ctx);
     __u64 exec_ino = hzn_lsm_bprm_ino(ctx);
@@ -660,6 +663,7 @@ int GateExec(void *ctx) {
     event->hdr.ppid = hzn_current_ppid();
     event->hdr.tgid = event->hdr.pid;
     event->hdr.uid = hzn_current_uid();
+    event->hdr.seq = 0;
     event->hdr.kind = 1;
     event->hdr.verdict = verdict;
     event->pad = 1;
@@ -734,6 +738,14 @@ int GateFileOpen(void *ctx) {
     }
     event->flags = flags;
     event->mode = mode;
+    event->op = 1;
+    if (writing != 0) {
+        event->op = 2;
+    }
+    if ((flags & ((__u32)0100)) != 0) {
+        event->op = 3;
+    }
+    event->path_trunc = 0;
     if (hzn_lsm_file_path(ctx, &event->path, sizeof(event->path)) < 0) {
         event->path_trunc = 1;
     }
@@ -745,6 +757,7 @@ int GateFileOpen(void *ctx) {
     event->hdr.ppid = hzn_current_ppid();
     event->hdr.tgid = event->hdr.pid;
     event->hdr.uid = hzn_current_uid();
+    event->hdr.seq = 0;
     event->hdr.kind = 2;
     event->hdr.verdict = verdict;
     hzn_current_comm(&event->hdr.comm, sizeof(event->hdr.comm));
@@ -770,6 +783,14 @@ int ObserveFileOpen(void *ctx) {
     }
     event->flags = hzn_lsm_file_flags(ctx);
     event->mode = hzn_lsm_file_mode(ctx);
+    event->op = 1;
+    if ((event->flags & (((((__u32)0x2) | ((__u32)0100)) | ((__u32)01000)) | ((__u32)02000))) != 0) {
+        event->op = 2;
+    }
+    if ((event->flags & ((__u32)0100)) != 0) {
+        event->op = 3;
+    }
+    event->path_trunc = 0;
     if (hzn_lsm_file_path(ctx, &event->path, sizeof(event->path)) < 0) {
         event->path_trunc = 1;
     }
@@ -781,6 +802,7 @@ int ObserveFileOpen(void *ctx) {
     event->hdr.ppid = hzn_current_ppid();
     event->hdr.tgid = event->hdr.pid;
     event->hdr.uid = hzn_current_uid();
+    event->hdr.seq = 0;
     event->hdr.kind = 2;
     event->hdr.verdict = 0;
     hzn_current_comm(&event->hdr.comm, sizeof(event->hdr.comm));
@@ -832,6 +854,7 @@ int GateConnect4(struct bpf_sock_addr *ctx) {
         return HZN_CGROUP_ALLOW;
     }
     event->dst_ip4 = ip;
+    event->pad = 0;
     event->dst_port = port;
     event->family = (__u16)(hzn_cgroup_family(ctx));
     event->protocol = (__u16)(protocol);
@@ -843,6 +866,7 @@ int GateConnect4(struct bpf_sock_addr *ctx) {
     event->hdr.ppid = hzn_current_ppid();
     event->hdr.tgid = event->hdr.pid;
     event->hdr.uid = hzn_current_uid();
+    event->hdr.seq = 0;
     event->hdr.kind = 3;
     event->hdr.verdict = verdict;
     hzn_current_comm(&event->hdr.comm, sizeof(event->hdr.comm));
@@ -867,6 +891,7 @@ int ObserveConnect4(struct bpf_sock_addr *ctx) {
         return HZN_CGROUP_ALLOW;
     }
     event->dst_ip4 = hzn_cgroup_dst_ip4(ctx);
+    event->pad = 0;
     event->dst_port = hzn_cgroup_dst_port(ctx);
     event->family = (__u16)(hzn_cgroup_family(ctx));
     event->protocol = (__u16)(hzn_cgroup_protocol(ctx));
@@ -878,6 +903,7 @@ int ObserveConnect4(struct bpf_sock_addr *ctx) {
     event->hdr.ppid = hzn_current_ppid();
     event->hdr.tgid = event->hdr.pid;
     event->hdr.uid = hzn_current_uid();
+    event->hdr.seq = 0;
     event->hdr.kind = 3;
     event->hdr.verdict = 0;
     hzn_current_comm(&event->hdr.comm, sizeof(event->hdr.comm));
@@ -936,6 +962,7 @@ int GateConnect6(struct bpf_sock_addr *ctx) {
         verdict = 3;
     }
     event->dst_port = port;
+    event->pad = 0;
     event->family = (__u16)(hzn_cgroup_family(ctx));
     event->protocol = (__u16)(protocol);
     event->hdr.ts_ns = hzn_ktime_get_ns();
@@ -946,6 +973,7 @@ int GateConnect6(struct bpf_sock_addr *ctx) {
     event->hdr.ppid = hzn_current_ppid();
     event->hdr.tgid = event->hdr.pid;
     event->hdr.uid = hzn_current_uid();
+    event->hdr.seq = 0;
     event->hdr.kind = 3;
     event->hdr.verdict = verdict;
     hzn_current_comm(&event->hdr.comm, sizeof(event->hdr.comm));
@@ -974,6 +1002,7 @@ int ObserveConnect6(struct bpf_sock_addr *ctx) {
         return HZN_CGROUP_ALLOW;
     }
     event->dst_port = hzn_cgroup_dst_port(ctx);
+    event->pad = 0;
     event->family = (__u16)(hzn_cgroup_family(ctx));
     event->protocol = (__u16)(hzn_cgroup_protocol(ctx));
     event->hdr.ts_ns = hzn_ktime_get_ns();
@@ -984,6 +1013,7 @@ int ObserveConnect6(struct bpf_sock_addr *ctx) {
     event->hdr.ppid = hzn_current_ppid();
     event->hdr.tgid = event->hdr.pid;
     event->hdr.uid = hzn_current_uid();
+    event->hdr.seq = 0;
     event->hdr.kind = 3;
     event->hdr.verdict = 0;
     hzn_current_comm(&event->hdr.comm, sizeof(event->hdr.comm));
