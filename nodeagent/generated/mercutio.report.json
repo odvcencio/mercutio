@@ -3,27 +3,27 @@
   "generator": "hzn workbench",
   "tool": {
     "name": "hzn",
-    "version": "v0.4.1-0.20260714060137-ec6fed43c7d8",
+    "version": "v0.4.1-0.20260714064121-0d14fa9d61b9",
     "module": "m31labs.dev/horizon",
     "modified": false,
     "go_version": "go1.26.0"
   },
-  "generated_at": "2026-07-14T06:02:12Z",
+  "generated_at": "2026-07-14T06:41:43Z",
   "package": "mercutio",
   "sources": [
     {
       "path": "programs/mercutio.hzn",
       "package": "mercutio",
-      "size": 14239,
-      "sha256": "e855d82d07d590b322432a1fcb8564999804007b2ee18054e596910af807f9e0"
+      "size": 17411,
+      "sha256": "fb9cad5858ede12ec21ca28f9e5906797d99c717a3f1b38b9cca5820d25d4e1c"
     }
   ],
   "status": "ok",
   "summary": {
     "source_count": 1,
-    "program_count": 5,
+    "program_count": 8,
     "map_count": 12,
-    "capability_count": 5,
+    "capability_count": 8,
     "type_count": 15,
     "program_kinds": [
       "cgroup",
@@ -66,32 +66,32 @@
     {
       "path": "generated/mercutio.bpf.c",
       "kind": "bpf_c",
-      "size": 38267,
-      "sha256": "7ea05ed2c18e2d8ae4f3a66bcc3c3bd5757e6dc3963201844bbca99761888a3f"
+      "size": 41734,
+      "sha256": "194c9578efa5e2d1a4bf4027572d3655114ea1e40b8f7219da9e983c6ec5b881"
     },
     {
       "path": "generated/mercutio.bpf.o",
       "kind": "bpf_object",
-      "size": 833440,
-      "sha256": "e3db7729b5855c6be256012a460785051f545be4b5520f22337f2176e2eca86a"
+      "size": 848000,
+      "sha256": "9991244e23c1e4bc02ca743d1fa1da020239268f1aeb5cf3cc37e54f2d5fe04a"
     },
     {
       "path": "generated/mercutio.hznmap.json",
       "kind": "source_map",
-      "size": 190121,
-      "sha256": "23da8685a9a28171f40ea32c8c20f15600e2dbf62545086256f57871fc51ba24"
+      "size": 234696,
+      "sha256": "5496acc5dd8d3b420f2ae0aa62bd6fdfc65387c7941187ca9224ba9a4f637f00"
     },
     {
       "path": "generated/mercutio.bindings.go",
       "kind": "bindings",
-      "size": 68147,
-      "sha256": "594f3818ea304a5303d465bda860b45de4aada6231e3e1036f6cc253289336a0"
+      "size": 86200,
+      "sha256": "6252f25edd29fcb650ecd78fc9daf829b261fede87aef642c1ffdbb092770c89"
     },
     {
       "path": "generated/mercutio.cap.json",
       "kind": "capabilities",
-      "size": 34877,
-      "sha256": "f501f35eb49c60c307a71bf5325c82d5a0bf8d0ea4ea8fd17e3b1ccf2fec8380"
+      "size": 48020,
+      "sha256": "2e6d6ea6861645ab07e8c671ed3339508931cf0cf29902d9ddf87f22a84f57c7"
     },
     {
       "path": "generated/mercutio.diagnostics.json",

@@ -111,9 +111,10 @@ func Compile(profile string, source, horizonManifest []byte) (EffectivePermissio
 	}
 	wanted := []string{"OnExec", "GateExec", "GateFileOpen", "GateConnect4", "GateConnect6"}
 	if profile == "open" {
+		wanted = []string{"OnExec", "ObserveFileOpen", "ObserveConnect4", "ObserveConnect6"}
 		eps.RecordedOnly = true
 		eps.ActionCeiling = DangerAxes{Mode: "mutate", Scope: "system", Reversibility: "persistent"}
-		eps.ProgramCeiling = DangerAxes{Mode: "control", Scope: "filesystem", Reversibility: "restart"}
+		eps.ProgramCeiling = DangerAxes{Mode: "observe", Scope: "event", Reversibility: "none"}
 	} else {
 		eps.ActionCeiling = DangerAxes{Mode: "mutate", Scope: "filesystem", Reversibility: map[string]string{"strict": "restart", "standard": "persistent"}[profile]}
 		eps.ProgramCeiling = DangerAxes{Mode: "control", Scope: "system", Reversibility: "restart"}

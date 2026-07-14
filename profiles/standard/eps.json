@@ -2,8 +2,8 @@
   "schema": "m31labs.dev/mercutio/eps/v1",
   "profile": "standard",
   "sourceDigest": "sha256:812ad72ed49011982239cfe841cc7840d7b761d3a794f7ec2a3651a7c0b8448d",
-  "horizonDigest": "sha256:f501f35eb49c60c307a71bf5325c82d5a0bf8d0ea4ea8fd17e3b1ccf2fec8380",
-  "profileDigest": "sha256:04e7e8843a2f4ebfe4fcb24a5caa186ed6cfcdf210796d3787664b6d8194a887",
+  "horizonDigest": "sha256:2e6d6ea6861645ab07e8c671ed3339508931cf0cf29902d9ddf87f22a84f57c7",
+  "profileDigest": "sha256:2ec89932dd3b0ee8fafeed2b4a2b3442ad146e5b9ce5c6e88adbb7e65b2dfd61",
   "filesystem": [
     {
       "domain": "cache",

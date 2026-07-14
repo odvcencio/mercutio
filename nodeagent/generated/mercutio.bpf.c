@@ -753,6 +753,39 @@ int GateFileOpen(void *ctx) {
     return HZN_LSM_ALLOW;
 }
 
+SEC("lsm/file_open")
+int ObserveFileOpen(void *ctx) {
+    (void)ctx;
+    __u64 cgroup_id = hzn_current_cgroup_id();
+    struct hzn_type_CellScopeVal *scope = CellScope_lookup(cgroup_id);
+    if (scope == 0) {
+        return HZN_LSM_ALLOW;
+    }
+    struct hzn_type_FileEvent *event = FileEvents_reserve();
+    if (event == 0) {
+        hzn_fn_bump_drop(2);
+        return HZN_LSM_ALLOW;
+    }
+    event->flags = hzn_lsm_file_flags(ctx);
+    event->mode = hzn_lsm_file_mode(ctx);
+    if (hzn_lsm_file_path(ctx, &event->path, sizeof(event->path)) < 0) {
+        event->path_trunc = 1;
+    }
+    event->hdr.ts_ns = hzn_ktime_get_ns();
+    event->hdr.cell_lo = scope->cell_lo;
+    event->hdr.cell_hi = scope->cell_hi;
+    event->hdr.cgroup_id = cgroup_id;
+    event->hdr.pid = hzn_current_pid();
+    event->hdr.ppid = hzn_current_ppid();
+    event->hdr.tgid = event->hdr.pid;
+    event->hdr.uid = hzn_current_uid();
+    event->hdr.kind = 2;
+    event->hdr.verdict = 0;
+    hzn_current_comm(&event->hdr.comm, sizeof(event->hdr.comm));
+    FileEvents_submit(event);
+    return HZN_LSM_ALLOW;
+}
+
 SEC("cgroup/connect4")
 int GateConnect4(struct bpf_sock_addr *ctx) {
     (void)ctx;
@@ -815,6 +848,38 @@ int GateConnect4(struct bpf_sock_addr *ctx) {
     if ((verdict == 1) || (verdict == 2)) {
         return HZN_CGROUP_DENY;
     }
+    return HZN_CGROUP_ALLOW;
+}
+
+SEC("cgroup/connect4")
+int ObserveConnect4(struct bpf_sock_addr *ctx) {
+    (void)ctx;
+    __u64 cgroup_id = hzn_current_cgroup_id();
+    struct hzn_type_CellScopeVal *scope = CellScope_lookup(cgroup_id);
+    if (scope == 0) {
+        return HZN_CGROUP_ALLOW;
+    }
+    struct hzn_type_ConnectEvent *event = ConnectEvents_reserve();
+    if (event == 0) {
+        hzn_fn_bump_drop(3);
+        return HZN_CGROUP_ALLOW;
+    }
+    event->dst_ip4 = hzn_cgroup_dst_ip4(ctx);
+    event->dst_port = hzn_cgroup_dst_port(ctx);
+    event->family = (__u16)(hzn_cgroup_family(ctx));
+    event->protocol = (__u16)(hzn_cgroup_protocol(ctx));
+    event->hdr.ts_ns = hzn_ktime_get_ns();
+    event->hdr.cell_lo = scope->cell_lo;
+    event->hdr.cell_hi = scope->cell_hi;
+    event->hdr.cgroup_id = cgroup_id;
+    event->hdr.pid = hzn_current_pid();
+    event->hdr.ppid = hzn_current_ppid();
+    event->hdr.tgid = event->hdr.pid;
+    event->hdr.uid = hzn_current_uid();
+    event->hdr.kind = 3;
+    event->hdr.verdict = 0;
+    hzn_current_comm(&event->hdr.comm, sizeof(event->hdr.comm));
+    ConnectEvents_submit(event);
     return HZN_CGROUP_ALLOW;
 }
 
@@ -886,5 +951,40 @@ int GateConnect6(struct bpf_sock_addr *ctx) {
     if ((verdict == 1) || (verdict == 2)) {
         return HZN_CGROUP_DENY;
     }
+    return HZN_CGROUP_ALLOW;
+}
+
+SEC("cgroup/connect6")
+int ObserveConnect6(struct bpf_sock_addr *ctx) {
+    (void)ctx;
+    __u64 cgroup_id = hzn_current_cgroup_id();
+    struct hzn_type_CellScopeVal *scope = CellScope_lookup(cgroup_id);
+    if (scope == 0) {
+        return HZN_CGROUP_ALLOW;
+    }
+    struct hzn_type_ConnectEvent *event = ConnectEvents_reserve();
+    if (event == 0) {
+        hzn_fn_bump_drop(3);
+        return HZN_CGROUP_ALLOW;
+    }
+    if (hzn_cgroup_dst_ip6(ctx, &event->dst_ip6, sizeof(event->dst_ip6)) != 0) {
+        ConnectEvents_discard(event);
+        return HZN_CGROUP_ALLOW;
+    }
+    event->dst_port = hzn_cgroup_dst_port(ctx);
+    event->family = (__u16)(hzn_cgroup_family(ctx));
+    event->protocol = (__u16)(hzn_cgroup_protocol(ctx));
+    event->hdr.ts_ns = hzn_ktime_get_ns();
+    event->hdr.cell_lo = scope->cell_lo;
+    event->hdr.cell_hi = scope->cell_hi;
+    event->hdr.cgroup_id = cgroup_id;
+    event->hdr.pid = hzn_current_pid();
+    event->hdr.ppid = hzn_current_ppid();
+    event->hdr.tgid = event->hdr.pid;
+    event->hdr.uid = hzn_current_uid();
+    event->hdr.kind = 3;
+    event->hdr.verdict = 0;
+    hzn_current_comm(&event->hdr.comm, sizeof(event->hdr.comm));
+    ConnectEvents_submit(event);
     return HZN_CGROUP_ALLOW;
 }

@@ -89,9 +89,17 @@ func NewProgramManager(options ProgramOptions) (*ProgramManager, error) {
 }
 
 func (m *ProgramManager) loadClassPrograms(class uint32) (*classPrograms, error) {
-	objects, err := bindings.LoadObjects(m.options.ObjectPath)
+	profile, err := classProfile(class)
 	if err != nil {
-		return nil, fmt.Errorf("load class %d BPF collection: %w", class, err)
+		return nil, err
+	}
+	programsForProfile := expectedPrograms(profile)
+	objects, err := bindings.LoadObjectsWithOptions(m.options.ObjectPath, bindings.LoadOptions{
+		RemoveMemlock: true,
+		Programs:      programsForProfile,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("load class %d (%s) BPF collection with programs %v: %w", class, profile, programsForProfile, err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	programs := &classPrograms{class: class, objects: objects, readerCtx: ctx, cancelRead: cancel}
@@ -138,7 +146,10 @@ func (m *ProgramManager) Arm(ctx context.Context, cell Cell) (ArmResult, error) 
 	defer m.mu.Unlock()
 	programs := append([]string(nil), cell.Programs...)
 	if len(programs) == 0 {
-		programs = []string{"OnExec", "GateExec", "GateFileOpen", "GateConnect4", "GateConnect6"}
+		programs = expectedPrograms(cell.Profile)
+	}
+	if expected := expectedPrograms(cell.Profile); !programSetEqual(programs, expected) {
+		return ArmResult{}, fmt.Errorf("profile %s requires exact program set %v, got %v", cell.Profile, expected, programs)
 	}
 	if existing := m.cells[cell.ID]; existing != nil && slices.Equal(cellCgroupIDs(existing.cell), cellCgroupIDs(cell)) && existing.cell.WorktreeDev == cell.WorktreeDev && existing.cell.ScratchDev == cell.ScratchDev && existing.cell.RuntimeDev == cell.RuntimeDev && existing.cell.Profile == cell.Profile && existing.cell.ProfileDigest == cell.ProfileDigest && programSetEqual(existing.cell.Programs, programs) {
 		return m.armResult(cell.Profile, programs), nil
@@ -200,6 +211,15 @@ func (m *ProgramManager) Arm(ctx context.Context, cell Cell) (ArmResult, error) 
 		programsForClass.globalLinks = append(programsForClass.globalLinks, fileLink)
 		programsForClass.fileLSM = true
 	}
+	if hasProgram(programs, "ObserveFileOpen") && !programsForClass.fileLSM {
+		fileLink, err := programsForClass.objects.AttachObserveFileOpen()
+		if err != nil {
+			m.rollbackArm(loaded, existing)
+			return ArmResult{}, fmt.Errorf("attach observe-only file LSM: %w", err)
+		}
+		programsForClass.globalLinks = append(programsForClass.globalLinks, fileLink)
+		programsForClass.fileLSM = true
+	}
 	destinations := append([]string(nil), m.options.BaseAllow...)
 	if class != 2 {
 		destinations = append(destinations, cell.AllowedEgress...)
@@ -244,6 +264,22 @@ func (m *ProgramManager) Arm(ctx context.Context, cell Cell) (ArmResult, error) 
 		if err != nil {
 			m.rollbackArm(loaded, existing)
 			return ArmResult{}, fmt.Errorf("attach cgroup connect6: %w", err)
+		}
+		loaded.links = append(loaded.links, connect6)
+	}
+	if hasProgram(programs, "ObserveConnect4") {
+		connect4, err := programsForClass.objects.AttachObserveConnect4(cell.CgroupPath)
+		if err != nil {
+			m.rollbackArm(loaded, existing)
+			return ArmResult{}, fmt.Errorf("attach observe-only cgroup connect4: %w", err)
+		}
+		loaded.links = append(loaded.links, connect4)
+	}
+	if hasProgram(programs, "ObserveConnect6") {
+		connect6, err := programsForClass.objects.AttachObserveConnect6(cell.CgroupPath)
+		if err != nil {
+			m.rollbackArm(loaded, existing)
+			return ArmResult{}, fmt.Errorf("attach observe-only cgroup connect6: %w", err)
 		}
 		loaded.links = append(loaded.links, connect6)
 	}
@@ -462,6 +498,13 @@ func programSetEqual(left, right []string) bool {
 	return true
 }
 
+func expectedPrograms(profile string) []string {
+	if profile == "open" {
+		return []string{"OnExec", "ObserveFileOpen", "ObserveConnect4", "ObserveConnect6"}
+	}
+	return []string{"OnExec", "GateExec", "GateFileOpen", "GateConnect4", "GateConnect6"}
+}
+
 func (m *ProgramManager) resolveNetKeys(ctx context.Context, cgroupID uint64, destination string) ([]bindings.NetKey, []bindings.Net6Key, error) {
 	host, portText, err := net.SplitHostPort(destination)
 	if err != nil {
@@ -515,6 +558,19 @@ func profileClass(profile string) (uint32, error) {
 		return 2, nil
 	default:
 		return 0, fmt.Errorf("unknown cell profile %q", profile)
+	}
+}
+
+func classProfile(class uint32) (string, error) {
+	switch class {
+	case 0:
+		return "strict", nil
+	case 1:
+		return "standard", nil
+	case 2:
+		return "open", nil
+	default:
+		return "", fmt.Errorf("unknown profile class %d", class)
 	}
 }
 

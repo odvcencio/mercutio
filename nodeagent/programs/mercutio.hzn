@@ -152,9 +152,15 @@ capability ExecBlock danger "control,process,restart" = "kernel.process.exec.blo
 
 capability FileBlock danger "control,filesystem,restart" = "kernel.file.open.block"
 
+capability FileObserve danger observe = "kernel.file.open.observe"
+
 capability ConnectBlock danger block = "kernel.network.connect.block"
 
 capability Connect6Block danger block = "kernel.network.connect6.block"
+
+capability ConnectObserve danger observe = "kernel.network.connect.observe"
+
+capability Connect6Observe danger observe = "kernel.network.connect6.observe"
 
 func bump_drop(id u32) bool {
     count := Drops.lookup(id)
@@ -380,6 +386,39 @@ func GateFileOpen(ctx lsm.Context) i32 {
     return lsm.Allow
 }
 
+@capability(FileObserve)
+@lsm("file_open")
+func ObserveFileOpen(ctx lsm.Context) i32 {
+    cgroup_id := bpf.current_cgroup_id()
+    scope := CellScope.lookup(cgroup_id)
+    if scope == nil {
+        return lsm.Allow
+    }
+    event := FileEvents.reserve()
+    if event == nil {
+        bump_drop(2)
+        return lsm.Allow
+    }
+    event.flags = lsm.file_flags(ctx)
+    event.mode = lsm.file_mode(ctx)
+    if lsm.file_path(ctx, &event.path) < 0 {
+        event.path_trunc = 1
+    }
+    event.hdr.ts_ns = bpf.ktime_get_ns()
+    event.hdr.cell_lo = scope.cell_lo
+    event.hdr.cell_hi = scope.cell_hi
+    event.hdr.cgroup_id = cgroup_id
+    event.hdr.pid = bpf.current_pid()
+    event.hdr.ppid = bpf.current_ppid()
+    event.hdr.tgid = event.hdr.pid
+    event.hdr.uid = bpf.current_uid()
+    event.hdr.kind = 2
+    event.hdr.verdict = 0
+    bpf.current_comm(&event.hdr.comm)
+    FileEvents.submit(event)
+    return lsm.Allow
+}
+
 @capability(ConnectBlock)
 @cgroup("connect4")
 func GateConnect4(ctx cgroup.Connect) i32 {
@@ -438,6 +477,38 @@ func GateConnect4(ctx cgroup.Connect) i32 {
     if verdict == 1 || verdict == 2 {
         return cgroup.Deny
     }
+    return cgroup.Allow
+}
+
+@capability(ConnectObserve)
+@cgroup("connect4")
+func ObserveConnect4(ctx cgroup.Connect) i32 {
+    cgroup_id := bpf.current_cgroup_id()
+    scope := CellScope.lookup(cgroup_id)
+    if scope == nil {
+        return cgroup.Allow
+    }
+    event := ConnectEvents.reserve()
+    if event == nil {
+        bump_drop(3)
+        return cgroup.Allow
+    }
+    event.dst_ip4 = cgroup.dst_ip4(ctx)
+    event.dst_port = cgroup.dst_port(ctx)
+    event.family = u16(cgroup.family(ctx))
+    event.protocol = u16(cgroup.protocol(ctx))
+    event.hdr.ts_ns = bpf.ktime_get_ns()
+    event.hdr.cell_lo = scope.cell_lo
+    event.hdr.cell_hi = scope.cell_hi
+    event.hdr.cgroup_id = cgroup_id
+    event.hdr.pid = bpf.current_pid()
+    event.hdr.ppid = bpf.current_ppid()
+    event.hdr.tgid = event.hdr.pid
+    event.hdr.uid = bpf.current_uid()
+    event.hdr.kind = 3
+    event.hdr.verdict = 0
+    bpf.current_comm(&event.hdr.comm)
+    ConnectEvents.submit(event)
     return cgroup.Allow
 }
 
@@ -505,5 +576,40 @@ func GateConnect6(ctx cgroup.Connect) i32 {
     if verdict == 1 || verdict == 2 {
         return cgroup.Deny
     }
+    return cgroup.Allow
+}
+
+@capability(Connect6Observe)
+@cgroup("connect6")
+func ObserveConnect6(ctx cgroup.Connect) i32 {
+    cgroup_id := bpf.current_cgroup_id()
+    scope := CellScope.lookup(cgroup_id)
+    if scope == nil {
+        return cgroup.Allow
+    }
+    event := ConnectEvents.reserve()
+    if event == nil {
+        bump_drop(3)
+        return cgroup.Allow
+    }
+    if cgroup.dst_ip6(ctx, &event.dst_ip6) != 0 {
+        ConnectEvents.discard(event)
+        return cgroup.Allow
+    }
+    event.dst_port = cgroup.dst_port(ctx)
+    event.family = u16(cgroup.family(ctx))
+    event.protocol = u16(cgroup.protocol(ctx))
+    event.hdr.ts_ns = bpf.ktime_get_ns()
+    event.hdr.cell_lo = scope.cell_lo
+    event.hdr.cell_hi = scope.cell_hi
+    event.hdr.cgroup_id = cgroup_id
+    event.hdr.pid = bpf.current_pid()
+    event.hdr.ppid = bpf.current_ppid()
+    event.hdr.tgid = event.hdr.pid
+    event.hdr.uid = bpf.current_uid()
+    event.hdr.kind = 3
+    event.hdr.verdict = 0
+    bpf.current_comm(&event.hdr.comm)
+    ConnectEvents.submit(event)
     return cgroup.Allow
 }

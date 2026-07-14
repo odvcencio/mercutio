@@ -2,8 +2,8 @@
   "schema": "m31labs.dev/mercutio/eps/v1",
   "profile": "open",
   "sourceDigest": "sha256:c6349b6a3b499a6963f4178f3f4e5aa50670d68ee50d544cd4b6397767885a2a",
-  "horizonDigest": "sha256:f501f35eb49c60c307a71bf5325c82d5a0bf8d0ea4ea8fd17e3b1ccf2fec8380",
-  "profileDigest": "sha256:aa8b20ea6b759038498141be6b57c88c1a3316668e696aea760241a844ac3292",
+  "horizonDigest": "sha256:2e6d6ea6861645ab07e8c671ed3339508931cf0cf29902d9ddf87f22a84f57c7",
+  "profileDigest": "sha256:c409478f80c3951615e35b15eed31c170de4390bb7329f0b190ca42c011ca88d",
   "filesystem": [
     {
       "domain": "cache",
@@ -390,10 +390,9 @@
   ],
   "programs": [
     "OnExec",
-    "GateExec",
-    "GateFileOpen",
-    "GateConnect4",
-    "GateConnect6"
+    "ObserveFileOpen",
+    "ObserveConnect4",
+    "ObserveConnect6"
   ],
   "actionDangerCeiling": {
     "mode": "mutate",
@@ -401,9 +400,9 @@
     "reversibility": "persistent"
   },
   "programDangerCeiling": {
-    "mode": "control",
-    "scope": "filesystem",
-    "reversibility": "restart"
+    "mode": "observe",
+    "scope": "event",
+    "reversibility": "none"
   },
   "recordedOnly": true
 }
