@@ -1007,18 +1007,33 @@ func (s *Store) undoEdit(id, path, actor string, agentOnly bool) (model.CellSnap
 	if !ok {
 		return model.CellSnapshot{}, fmt.Errorf("document %q unavailable", operation.Path)
 	}
+	beforeContent, err := doc.doc.TextToString(doc.text)
+	if err != nil {
+		return model.CellSnapshot{}, err
+	}
+	applied := 0
 	for i := len(operation.Inserted) - 1; i >= 0; i-- {
 		if err := doc.doc.DeleteByElemID(doc.text, operation.Inserted[i]); err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				continue
+			}
 			return model.CellSnapshot{}, fmt.Errorf("undo inserted element: %w", err)
 		}
+		applied++
 	}
 	for _, elem := range operation.Deleted {
 		if err := doc.doc.ReviveElem(doc.text, elem); err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				continue
+			}
 			return model.CellSnapshot{}, fmt.Errorf("undo deleted element: %w", err)
 		}
+		applied++
 	}
-	if _, err := doc.doc.Commit("actor-scoped undo"); err != nil {
-		return model.CellSnapshot{}, err
+	if applied > 0 {
+		if _, err := doc.doc.Commit("actor-scoped undo"); err != nil {
+			return model.CellSnapshot{}, err
+		}
 	}
 	content, err := doc.doc.TextToString(doc.text)
 	if err != nil {
@@ -1043,6 +1058,10 @@ func (s *Store) undoEdit(id, path, actor string, agentOnly bool) (model.CellSnap
 	if agentOnly {
 		action = "buffer.revert-agent"
 		summary = actor + " reverted the latest agent edit"
+	}
+	if content == beforeContent {
+		action += ".noop"
+		summary = "Undo had no visible effect because its target elements were already gone"
 	}
 	s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: actor, Actor: actor, Action: action, Summary: summary, Detail: "path=" + operation.Path + "; originalActor=" + operation.Actor, Danger: "medium", Authenticated: true, Timestamp: now})
 	r.cell.Reviews = s.generateReviews(r)

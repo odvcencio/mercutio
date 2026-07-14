@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"m31labs.dev/gosx/crdt"
 	"m31labs.dev/mercutio/internal/model"
 )
 
@@ -149,6 +150,34 @@ func TestActorScopedUndoAndAgentRevertPreserveOtherWriter(t *testing.T) {
 	}
 	if file = fileContent(reverted, path); strings.Contains(file, "// agent") {
 		t.Fatalf("agent revert left agent operation: %q", file)
+	}
+}
+
+func TestActorScopedUndoMissingElementsIsNoOpWithNotice(t *testing.T) {
+	store := NewStore()
+	path := "cmd/hello/main.go"
+	before, err := store.File("cell-demo", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.cells["cell-demo"].history = append(store.cells["cell-demo"].history, editOperation{
+		Actor: "operator", Path: path, Inserted: []crdt.OpID{{Actor: "missing-actor", Counter: 999}}, CreatedAt: time.Now().UTC(),
+	})
+	snapshot, err := store.UndoEdit("cell-demo", path, "operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fileContent(snapshot, path); got != before.Content {
+		t.Fatalf("no-op undo changed content: %q", got)
+	}
+	found := false
+	for _, event := range snapshot.Events {
+		if event.Action == "buffer.undo.noop" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no-op undo did not emit an operator-visible notice")
 	}
 }
 
