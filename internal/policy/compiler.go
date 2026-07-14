@@ -51,7 +51,7 @@ type horizonEnvelope struct {
 var fileDomain = map[string][]string{
 	"worktree": {"/workspace/repo/"}, "tmp": {"/tmp/", "/ipc/"}, "cache": {"/home/agent/.cache/", "/home/agent/go/pkg/mod/", "/workspace/repo/node_modules/"},
 	"system": {"/usr/", "/lib/", "/etc/"}, "other": {"*"}, "ci": {"/workspace/repo/.github/", "/workspace/repo/.git", "/workspace/repo/.graft/", "/workspace/repo/Makefile"},
-	"sensitive": {"/home/agent/.ssh/", "/home/agent/.aws/", "/home/agent/.kube/", "/home/agent/.docker/", "/var/run/secrets/"}, "proc-other": {"/proc/*/environ"},
+	"sensitive": {"/home/agent/.ssh/", "/home/agent/.aws/", "/home/agent/.kube/", "/home/agent/.docker/", "/var/run/secrets/"}, "proc-other": {"/proc/<other-pid>/**", "/proc/*/environ"},
 }
 
 var execDomain = map[string][]string{

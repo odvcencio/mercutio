@@ -8,7 +8,7 @@ require (
 	k8s.io/apimachinery v0.30.3
 	k8s.io/client-go v0.30.3
 	m31labs.dev/continuum v0.0.0-20260713211228-a1a913208f0c
-	m31labs.dev/horizon v0.4.1-0.20260714000202-b00fe6480159
+	m31labs.dev/horizon v0.4.1-0.20260714003714-a54434af0b32
 )
 
 require (

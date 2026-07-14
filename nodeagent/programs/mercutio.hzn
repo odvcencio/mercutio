@@ -80,6 +80,15 @@ type ActionKey struct {
     kind u32
 }
 
+type ExecKey struct {
+    dev u64
+    ino u64
+}
+
+type ExecRule struct {
+    verdict u32
+}
+
 @max_entries(4096)
 map CellScope hash[u64, CellScopeVal]
 
@@ -94,6 +103,9 @@ map Drops percpu_hash[u32, DropCount]
 
 @max_entries(4096)
 map ActionGrant hash[ActionKey, u8]
+
+@max_entries(32768)
+map ExecRules hash[ExecKey, ExecRule]
 
 @max_entries(EventBytes)
 map ExecEvents ringbuf[ExecEvent]
@@ -175,28 +187,32 @@ func GateExec(ctx lsm.Context) i32 {
         return lsm.Deny
     }
     verdict := u32(0)
-    filename_valid := true
     if lsm.bprm_filename(ctx, &event.filename) < 0 {
-        filename_valid = false
         event.argv_trunc = 1
-        if scope.class != 2 {
+    }
+    exec_dev := lsm.bprm_dev(ctx)
+    exec_ino := lsm.bprm_ino(ctx)
+    exec_rule := ExecRules.lookup(ExecKey{dev: exec_dev, ino: exec_ino})
+    if scope.class == 0 {
+        verdict = 1
+        if exec_rule != nil {
+            if exec_rule.verdict == 1 {
+                verdict = 0
+            }
+        }
+    } else if scope.class == 1 {
+		verdict = 1
+        if exec_dev == scope.fs_dev {
+            verdict = 2
+        } else if exec_rule != nil {
+            if exec_rule.verdict == 1 {
+                verdict = 0
+            }
+        }
+    } else if exec_rule != nil {
+        if exec_rule.verdict == 2 {
             verdict = 1
         }
-    }
-    if filename_valid && (lsm.path_has_prefix(&event.filename, "/usr/bin/sudo") || lsm.path_has_prefix(&event.filename, "/usr/bin/su") || lsm.path_has_prefix(&event.filename, "/bin/su") || lsm.path_has_prefix(&event.filename, "/usr/bin/mount") || lsm.path_has_prefix(&event.filename, "/bin/mount") || lsm.path_has_prefix(&event.filename, "/usr/bin/insmod") || lsm.path_has_prefix(&event.filename, "/usr/sbin/insmod") || lsm.path_has_prefix(&event.filename, "/usr/bin/setcap") || lsm.path_has_prefix(&event.filename, "/usr/sbin/setcap")) {
-        verdict = 1
-    }
-    if filename_valid && scope.class == 0 && (lsm.path_has_prefix(&event.filename, "/bin/sh") || lsm.path_has_prefix(&event.filename, "/bin/bash") || lsm.path_has_prefix(&event.filename, "/usr/bin/bash") || lsm.path_has_prefix(&event.filename, "/usr/bin/zsh")) {
-        verdict = 1
-    }
-    if filename_valid && scope.class == 0 {
-        strict_allowed := lsm.path_has_prefix(&event.filename, "/usr/local/go/bin/") || lsm.path_has_prefix(&event.filename, "/usr/bin/go") || lsm.path_has_prefix(&event.filename, "/usr/bin/node") || lsm.path_has_prefix(&event.filename, "/usr/bin/python3") || lsm.path_has_prefix(&event.filename, "/usr/bin/cargo") || lsm.path_has_prefix(&event.filename, "/usr/bin/git") || lsm.path_has_prefix(&event.filename, "/usr/bin/graft") || lsm.path_has_prefix(&event.filename, "/usr/bin/buckley") || lsm.path_has_prefix(&event.filename, "/usr/local/bin/graft") || lsm.path_has_prefix(&event.filename, "/usr/local/bin/buckley") || lsm.path_has_prefix(&event.filename, "/bin/cat") || lsm.path_has_prefix(&event.filename, "/bin/cp") || lsm.path_has_prefix(&event.filename, "/bin/cut") || lsm.path_has_prefix(&event.filename, "/bin/date") || lsm.path_has_prefix(&event.filename, "/bin/echo") || lsm.path_has_prefix(&event.filename, "/bin/env") || lsm.path_has_prefix(&event.filename, "/bin/find") || lsm.path_has_prefix(&event.filename, "/bin/grep") || lsm.path_has_prefix(&event.filename, "/bin/head") || lsm.path_has_prefix(&event.filename, "/bin/ls") || lsm.path_has_prefix(&event.filename, "/bin/mkdir") || lsm.path_has_prefix(&event.filename, "/bin/mv") || lsm.path_has_prefix(&event.filename, "/bin/pwd") || lsm.path_has_prefix(&event.filename, "/bin/rm") || lsm.path_has_prefix(&event.filename, "/bin/sed") || lsm.path_has_prefix(&event.filename, "/bin/sort") || lsm.path_has_prefix(&event.filename, "/bin/tail") || lsm.path_has_prefix(&event.filename, "/bin/tar") || lsm.path_has_prefix(&event.filename, "/bin/touch") || lsm.path_has_prefix(&event.filename, "/bin/tr") || lsm.path_has_prefix(&event.filename, "/bin/uniq") || lsm.path_has_prefix(&event.filename, "/bin/wc") || lsm.path_has_prefix(&event.filename, "/usr/bin/cat") || lsm.path_has_prefix(&event.filename, "/usr/bin/cp") || lsm.path_has_prefix(&event.filename, "/usr/bin/env") || lsm.path_has_prefix(&event.filename, "/usr/bin/find") || lsm.path_has_prefix(&event.filename, "/usr/bin/grep") || lsm.path_has_prefix(&event.filename, "/usr/bin/ls") || lsm.path_has_prefix(&event.filename, "/usr/bin/mkdir") || lsm.path_has_prefix(&event.filename, "/usr/bin/rm") || lsm.path_has_prefix(&event.filename, "/usr/bin/sed") || lsm.path_has_prefix(&event.filename, "/usr/bin/tar")
-        if !strict_allowed {
-            verdict = 1
-        }
-    }
-    if filename_valid && scope.class == 1 && lsm.path_has_prefix(&event.filename, "/workspace/") {
-        verdict = 2
     }
     exec_grant := ActionGrant.lookup(ActionKey{cgroup_id: cgroup_id, pid: bpf.current_pid(), kind: 1})
     if verdict == 2 && exec_grant != nil {
@@ -248,7 +264,8 @@ func GateFileOpen(ctx lsm.Context) i32 {
             verdict = 1
         }
     }
-    if path_valid && (lsm.path_has_prefix(&event.path, "/root/.ssh/") || lsm.path_has_prefix(&event.path, "/root/.aws/") || lsm.path_has_prefix(&event.path, "/root/.kube/") || lsm.path_has_prefix(&event.path, "/root/.docker/") || lsm.path_has_prefix(&event.path, "/home/agent/.ssh/") || lsm.path_has_prefix(&event.path, "/home/agent/.aws/") || lsm.path_has_prefix(&event.path, "/home/agent/.kube/") || lsm.path_has_prefix(&event.path, "/home/agent/.docker/") || lsm.path_has_prefix(&event.path, "/home/nonroot/.ssh/") || lsm.path_has_prefix(&event.path, "/home/nonroot/.aws/") || lsm.path_has_prefix(&event.path, "/home/nonroot/.kube/") || lsm.path_has_prefix(&event.path, "/home/nonroot/.docker/") || lsm.path_has_prefix(&event.path, "/var/run/secrets/") || lsm.path_has_prefix(&event.path, "/proc/") && lsm.path_has_suffix(&event.path, "/environ")) {
+    proc_other := lsm.file_is_proc_other(ctx)
+    if proc_other || path_valid && (lsm.path_has_prefix(&event.path, "/root/.ssh/") || lsm.path_has_prefix(&event.path, "/root/.aws/") || lsm.path_has_prefix(&event.path, "/root/.kube/") || lsm.path_has_prefix(&event.path, "/root/.docker/") || lsm.path_has_prefix(&event.path, "/home/agent/.ssh/") || lsm.path_has_prefix(&event.path, "/home/agent/.aws/") || lsm.path_has_prefix(&event.path, "/home/agent/.kube/") || lsm.path_has_prefix(&event.path, "/home/agent/.docker/") || lsm.path_has_prefix(&event.path, "/home/nonroot/.ssh/") || lsm.path_has_prefix(&event.path, "/home/nonroot/.aws/") || lsm.path_has_prefix(&event.path, "/home/nonroot/.kube/") || lsm.path_has_prefix(&event.path, "/home/nonroot/.docker/") || lsm.path_has_prefix(&event.path, "/var/run/secrets/") || lsm.path_has_prefix(&event.path, "/proc/") && lsm.path_has_suffix(&event.path, "/environ")) {
         verdict = 1
     }
     writing := event.flags & (lsm.FModeWrite | lsm.OCreat | lsm.OTrunc | lsm.OAppend)

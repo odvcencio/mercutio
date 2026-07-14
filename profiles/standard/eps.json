@@ -2,8 +2,8 @@
   "schema": "m31labs.dev/mercutio/eps/v1",
   "profile": "standard",
   "sourceDigest": "sha256:ab3151ab0dac2dfc62886ebc1384154fd368007d6a160fb1f0d75e728d1ab115",
-  "horizonDigest": "sha256:d95ce8c834caa43fdeaf806258a12cfda029012b6c5003b4e87077005d3e87b2",
-  "profileDigest": "sha256:88569681f91fc3865853d50f0ae0d5e0835811d9252bac9ebdb31bac04a6b020",
+  "horizonDigest": "sha256:8fe7709ddc9fd92d17fa1ff1d237e3a32d0d347f44721a73c073b404e7da92d0",
+  "profileDigest": "sha256:ee4c7658b7a2fb28d7d92b6252947e936699d9469b2a94818c3e330cdc357906",
   "filesystem": [
     {
       "domain": "cache",
@@ -84,6 +84,7 @@
     {
       "domain": "proc-other",
       "targets": [
+        "/proc/\u003cother-pid\u003e/**",
         "/proc/*/environ"
       ],
       "ops": [
@@ -95,6 +96,7 @@
     {
       "domain": "proc-other",
       "targets": [
+        "/proc/\u003cother-pid\u003e/**",
         "/proc/*/environ"
       ],
       "ops": [

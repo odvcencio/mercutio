@@ -33,6 +33,7 @@ type ProgramOptions struct {
 	Resolver     *net.Resolver
 	Queue        EventQueue
 	Signal       func(int, unix.Signal) error
+	ProcRoot     string
 }
 
 type ProgramManager struct {
@@ -154,6 +155,9 @@ func (m *ProgramManager) Arm(ctx context.Context, cell Cell) (ArmResult, error) 
 	programsForClass := m.classes[class]
 	if programsForClass == nil {
 		return ArmResult{}, fmt.Errorf("class %d program collection unavailable", class)
+	}
+	if err := m.installExecRules(cell, programsForClass, class); err != nil {
+		return ArmResult{}, err
 	}
 	cell.Programs = append([]string(nil), programs...)
 	for _, cgroupID := range cgroupIDs {
