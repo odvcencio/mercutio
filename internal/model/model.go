@@ -9,6 +9,7 @@ type CellStatus string
 const (
 	CellCreating CellStatus = "creating"
 	CellReady    CellStatus = "ready"
+	CellIdle     CellStatus = "idle"
 	CellSteering CellStatus = "steering"
 	CellStopped  CellStatus = "stopped"
 	CellError    CellStatus = "error"

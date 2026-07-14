@@ -32,11 +32,16 @@ func runAttach(args []string) {
 	cellID := flags.String("cell", os.Getenv("MERCUTIO_CELL_ID"), "cell ID")
 	token := flags.String("token", os.Getenv("MERCUTIO_ATTACH_TOKEN"), "cell attach token")
 	name := flags.String("name", envOr("MERCUTIO_AGENT_NAME", "coding-agent"), "agent display name")
+	adapterName := flags.String("adapter", envOr("MERCUTIO_AGENT_ADAPTER", "stdio"), "stdio, claude-code, or tiller")
 	hubURL := flags.String("hub", envOr("MERCUTIO_HUB_URL", "http://127.0.0.1:9011/gosx/hub/agent"), "Mercutio agent hub URL")
 	socketPath := flags.String("socket", os.Getenv("MERCUTIO_ATTACH_SOCKET"), "optional Unix socket exposed only to the agent container")
 	controlURL := flags.String("control", os.Getenv("MERCUTIO_CONTROL_URL"), "control-plane HTTP base URL")
 	worktree := flags.String("worktree", envOr("MERCUTIO_WORKTREE", "/workspace"), "shared cell worktree")
 	flags.Parse(args)
+	if *adapterName != "stdio" && *adapterName != "claude-code" && *adapterName != "tiller" {
+		fmt.Fprintln(os.Stderr, "attach --adapter must be stdio, claude-code, or tiller")
+		os.Exit(2)
+	}
 	if strings.TrimSpace(*cellID) == "" || strings.TrimSpace(*token) == "" {
 		fmt.Fprintln(os.Stderr, "attach requires --cell and --token")
 		os.Exit(2)
@@ -96,7 +101,7 @@ func runAttach(args []string) {
 		os.Exit(1)
 	}
 	defer reconciler.Close()
-	if err := write(hub.Message{Event: "agent:attach", Data: mustJSON(map[string]string{"name": *name})}); err != nil {
+	if err := write(hub.Message{Event: "agent:attach", Data: mustJSON(map[string]string{"name": *name, "adapter": *adapterName})}); err != nil {
 		fmt.Fprintln(os.Stderr, "attach:", err)
 		os.Exit(1)
 	}

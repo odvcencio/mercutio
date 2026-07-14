@@ -145,6 +145,74 @@ func TestAgentHeartbeatAndCapabilityRefresh(t *testing.T) {
 	}
 }
 
+func TestAgentOutputIsRedactedAndRecordedAsIntent(t *testing.T) {
+	store := cell.NewStore()
+	h := NewCellHub(store)
+	server := httptest.NewServer(http.HandlerFunc(h.ServeAgentHTTP))
+	defer server.Close()
+	token, err := store.AttachToken("cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := dialAgentHub(t, server.URL, "cell-demo", token)
+	defer conn.Close()
+	if err := conn.WriteJSON(hub.Message{Event: "agent:attach", Data: rawJSON(map[string]string{"name": "agent"})}); err != nil {
+		t.Fatal(err)
+	}
+	readEvent(t, conn, "attach:welcome")
+	secret := "ghp_abcdefghijklmnopqrstuvwxyz"
+	if err := conn.WriteJSON(hub.Message{Event: "agent:output", Data: rawJSON(map[string]string{"stream": "stderr", "text": "failed with " + secret})}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		snapshot, err := store.Snapshot("cell-demo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, event := range snapshot.Events {
+			if event.Action != "agent.output" {
+				continue
+			}
+			if event.Kind != model.EventIntent || event.Summary != "Agent stderr output" || strings.Contains(event.Detail, secret) || !strings.Contains(event.Detail, "<redacted>") {
+				t.Fatalf("output event=%+v", event)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("agent output was not recorded")
+}
+
+func TestAgentIdleStatusLeavesCellIdleNotFailed(t *testing.T) {
+	store := cell.NewStore()
+	h := NewCellHub(store)
+	server := httptest.NewServer(http.HandlerFunc(h.ServeAgentHTTP))
+	defer server.Close()
+	token, err := store.AttachToken("cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := dialAgentHub(t, server.URL, "cell-demo", token)
+	defer conn.Close()
+	if err := conn.WriteJSON(hub.Message{Event: "agent:attach", Data: rawJSON(map[string]string{"name": "agent"})}); err != nil {
+		t.Fatal(err)
+	}
+	readEvent(t, conn, "attach:welcome")
+	if err := conn.WriteJSON(hub.Message{Event: "agent:status", Data: rawJSON(map[string]string{"status": "idle"})}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		snapshot, err := store.Snapshot("cell-demo")
+		if err == nil && snapshot.Status == model.CellIdle && snapshot.Agent.Status == "idle" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("agent exit did not transition cell to idle")
+}
+
 func TestBrowserBinarySpliceIsActorBoundAndAppliedToCRDT(t *testing.T) {
 	store := cell.NewStore()
 	h := NewCellHub(store)

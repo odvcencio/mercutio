@@ -29,15 +29,23 @@ data:
         seccompProfile:
           type: RuntimeDefault
       initContainers:
-        - name: materialize-graft-worktree
-          image: {{ .Values.sandbox.graftImage }}
-          args: ["clone", "--branch", "{{`{{BRANCH}}`}}", "--no-modules", "{{`{{REPO_URL}}`}}", "/workspace/repo"]
+        - name: install-agent-supervisor
+          image: {{ .Values.sandbox.attachImage }}
+          command: ["/bin/sh", "-c"]
+          args: ["cp /app/mercutio /run/mercutio/mercutio && chmod 0555 /run/mercutio/mercutio"]
           securityContext: &restricted
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             runAsNonRoot: true
             capabilities:
               drop: ["ALL"]
+          volumeMounts:
+            - name: runtime
+              mountPath: /run/mercutio
+        - name: materialize-graft-worktree
+          image: {{ .Values.sandbox.graftImage }}
+          args: ["clone", "--branch", "{{`{{BRANCH}}`}}", "--no-modules", "{{`{{REPO_URL}}`}}", "/workspace/repo"]
+          securityContext: *restricted
           volumeMounts:
             - name: workspace
               mountPath: /workspace
@@ -78,6 +86,19 @@ data:
       containers:
         - name: agent
           image: {{ .Values.sandbox.agentImage }}
+          command: ["/run/mercutio/mercutio"]
+          args:
+            - agent
+            - --adapter
+            - {{ .Values.sandbox.agentAdapter | quote }}
+            - --socket
+            - /run/mercutio/attach.sock
+            - --worktree
+            - /workspace/repo
+            - --
+            {{- range .Values.sandbox.agentCommand }}
+            - {{ . | quote }}
+            {{- end }}
           securityContext: *restricted
           workingDir: /workspace/repo
           env:
@@ -103,7 +124,7 @@ data:
               mountPath: /tmp
         - name: attach
           image: {{ .Values.sandbox.attachImage }}
-          args: ["attach", "--cell", "{{`{{CELL_ID}}`}}", "--hub", "{{`{{HUB_URL}}`}}", "--socket", "/run/mercutio/attach.sock", "--worktree", "/workspace/repo"]
+          args: ["attach", "--cell", "{{`{{CELL_ID}}`}}", "--hub", "{{`{{HUB_URL}}`}}", "--adapter", {{ .Values.sandbox.agentAdapter | quote }}, "--socket", "/run/mercutio/attach.sock", "--worktree", "/workspace/repo"]
           securityContext: *restricted
           env:
             - name: MERCUTIO_ATTACH_TOKEN

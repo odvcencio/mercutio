@@ -17,6 +17,7 @@ import (
 	"m31labs.dev/mercutio/internal/cell"
 	"m31labs.dev/mercutio/internal/model"
 	"m31labs.dev/mercutio/internal/review"
+	"m31labs.dev/mercutio/internal/secrets"
 )
 
 // CellHub carries presence, steering, and buffer updates. The server also
@@ -210,6 +211,30 @@ func NewCellHub(store *cell.Store) *CellHub {
 		}
 		event.Kind = model.EventIntent
 		event.Source = session.AgentID
+		if snapshot, err := store.RecordEvent(session.CellID, event); err == nil {
+			h.BroadcastCell(snapshot)
+		}
+	})
+	h.agentHub.On("agent:output", func(ctx *hub.Context) {
+		if !metadataPermission(ctx.Client, "telemetry:write") {
+			return
+		}
+		session, ok := h.agent(ctx.Client.ID)
+		if !ok {
+			return
+		}
+		var payload struct {
+			Stream string `json:"stream"`
+			Text   string `json:"text"`
+		}
+		if json.Unmarshal(ctx.Data, &payload) != nil || strings.TrimSpace(payload.Text) == "" {
+			return
+		}
+		stream := "stdout"
+		if payload.Stream == "stderr" {
+			stream = "stderr"
+		}
+		event := model.Event{Kind: model.EventIntent, Source: session.AgentID, Action: "agent.output", Summary: "Agent " + stream + " output", Detail: secrets.RedactText(payload.Text), Timestamp: time.Now().UTC()}
 		if snapshot, err := store.RecordEvent(session.CellID, event); err == nil {
 			h.BroadcastCell(snapshot)
 		}

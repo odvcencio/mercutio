@@ -474,15 +474,23 @@ data:
         seccompProfile:
           type: RuntimeDefault
       initContainers:
-        - name: materialize-graft-worktree
-          image: example.invalid/graft@sha256:1111111111111111111111111111111111111111111111111111111111111111
-          args: ["clone", "--branch", "{{BRANCH}}", "--no-modules", "{{REPO_URL}}", "/workspace/repo"]
+        - name: install-agent-supervisor
+          image: example.invalid/mercutio@sha256:1111111111111111111111111111111111111111111111111111111111111111
+          command: ["/bin/sh", "-c"]
+          args: ["cp /app/mercutio /run/mercutio/mercutio && chmod 0555 /run/mercutio/mercutio"]
           securityContext: &restricted
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             runAsNonRoot: true
             capabilities:
               drop: ["ALL"]
+          volumeMounts:
+            - name: runtime
+              mountPath: /run/mercutio
+        - name: materialize-graft-worktree
+          image: example.invalid/graft@sha256:1111111111111111111111111111111111111111111111111111111111111111
+          args: ["clone", "--branch", "{{BRANCH}}", "--no-modules", "{{REPO_URL}}", "/workspace/repo"]
+          securityContext: *restricted
           volumeMounts:
             - name: workspace
               mountPath: /workspace
@@ -523,6 +531,22 @@ data:
       containers:
         - name: agent
           image: example.invalid/agent@sha256:1111111111111111111111111111111111111111111111111111111111111111
+          command: ["/run/mercutio/mercutio"]
+          args:
+            - agent
+            - --adapter
+            - "claude-code"
+            - --socket
+            - /run/mercutio/attach.sock
+            - --worktree
+            - /workspace/repo
+            - --
+            - "claude"
+            - "--print"
+            - "--input-format"
+            - "stream-json"
+            - "--output-format"
+            - "stream-json"
           securityContext: *restricted
           workingDir: /workspace/repo
           env:
@@ -548,7 +572,7 @@ data:
               mountPath: /tmp
         - name: attach
           image: example.invalid/mercutio@sha256:1111111111111111111111111111111111111111111111111111111111111111
-          args: ["attach", "--cell", "{{CELL_ID}}", "--hub", "{{HUB_URL}}", "--socket", "/run/mercutio/attach.sock", "--worktree", "/workspace/repo"]
+          args: ["attach", "--cell", "{{CELL_ID}}", "--hub", "{{HUB_URL}}", "--adapter", "claude-code", "--socket", "/run/mercutio/attach.sock", "--worktree", "/workspace/repo"]
           securityContext: *restricted
           env:
             - name: MERCUTIO_ATTACH_TOKEN

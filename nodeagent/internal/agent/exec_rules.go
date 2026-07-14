@@ -36,6 +36,8 @@ var privilegeExecPaths = []string{
 	"/usr/bin/insmod", "/usr/sbin/insmod", "/usr/bin/setcap", "/usr/sbin/setcap",
 }
 
+var supervisorExecPaths = []string{"/run/mercutio/mercutio"}
+
 func (m *ProgramManager) installExecRules(cell Cell, programs *classPrograms, class uint32) error {
 	procRoot := m.options.ProcRoot
 	if procRoot == "" {
@@ -50,6 +52,11 @@ func (m *ProgramManager) installExecRules(cell Cell, programs *classPrograms, cl
 	}
 	rules := map[bindings.ExecKey]uint32{}
 	for _, root := range roots {
+		if class < 2 {
+			for _, path := range supervisorExecPaths {
+				addExecPath(rules, root, path, execAllow)
+			}
+		}
 		if class == 0 {
 			for _, path := range strictExecPaths {
 				addExecPath(rules, root, path, execAllow)

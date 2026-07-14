@@ -49,6 +49,8 @@ sandbox:
   enabled: true
   runtime: kubernetes
   agentImage: ghcr.io/odvcencio/mercutio-agent@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  agentAdapter: claude-code
+  agentCommand: ["claude", "--print", "--input-format", "stream-json", "--output-format", "stream-json"]
   attachImage: ghcr.io/odvcencio/mercutio@sha256:0000000000000000000000000000000000000000000000000000000000000000
   graftImage: ghcr.io/odvcencio/graft@sha256:0000000000000000000000000000000000000000000000000000000000000000
   armgateImage: ghcr.io/odvcencio/mercutio@sha256:0000000000000000000000000000000000000000000000000000000000000000

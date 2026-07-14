@@ -1594,6 +1594,9 @@ func (s *Store) UpdateAgent(id, agentID, status string) (model.CellSnapshot, err
 	r.cell.Agent.ID = defaultValue(agentID, r.cell.Agent.ID)
 	r.cell.Agent.Status = defaultValue(status, "working")
 	r.cell.Agent.Connected = true
+	if r.cell.Agent.Status == "idle" && r.cell.Status != model.CellStopped && r.cell.Status != model.CellError {
+		r.cell.Status = model.CellIdle
+	}
 	r.cell.Agent.LastSeen = now
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
