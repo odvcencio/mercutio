@@ -51,14 +51,17 @@ nodeagent-generate:
 	cd nodeagent && $(HZN) workbench -compile -o generated programs/mercutio.hzn
 
 nodeagent-check-generated:
-	rm -rf nodeagent/tmp-generated
-	cd nodeagent && $(HZN) workbench -o tmp-generated programs/mercutio.hzn
-	diff -u nodeagent/generated/mercutio.bindings.go nodeagent/tmp-generated/mercutio.bindings.go
-	diff -u nodeagent/generated/mercutio.bpf.c nodeagent/tmp-generated/mercutio.bpf.c
-	diff -u nodeagent/generated/mercutio.cap.json nodeagent/tmp-generated/mercutio.cap.json
-	diff -u nodeagent/generated/mercutio.diagnostics.json nodeagent/tmp-generated/mercutio.diagnostics.json
-	diff -u nodeagent/generated/mercutio.hznmap.json <(sed 's#tmp-generated/#generated/#g' nodeagent/tmp-generated/mercutio.hznmap.json)
-	rm -rf nodeagent/tmp-generated
+	rm -rf nodeagent/tmp-generated-a nodeagent/tmp-generated-b
+	cd nodeagent && $(HZN) workbench -compile -o tmp-generated-a programs/mercutio.hzn
+	cd nodeagent && $(HZN) workbench -compile -o tmp-generated-b programs/mercutio.hzn
+	diff -u nodeagent/generated/mercutio.bindings.go nodeagent/tmp-generated-a/mercutio.bindings.go
+	diff -u nodeagent/generated/mercutio.bpf.c nodeagent/tmp-generated-a/mercutio.bpf.c
+	diff -u nodeagent/generated/mercutio.cap.json nodeagent/tmp-generated-a/mercutio.cap.json
+	diff -u nodeagent/generated/mercutio.diagnostics.json nodeagent/tmp-generated-a/mercutio.diagnostics.json
+	diff -u nodeagent/generated/mercutio.hznmap.json <(sed 's#tmp-generated-a/#generated/#g' nodeagent/tmp-generated-a/mercutio.hznmap.json)
+	cmp nodeagent/tmp-generated-a/mercutio.bpf.o nodeagent/tmp-generated-b/mercutio.bpf.o
+	@! strings nodeagent/generated/mercutio.bpf.o | grep -F "$(CURDIR)"
+	rm -rf nodeagent/tmp-generated-a nodeagent/tmp-generated-b
 
 helm-check:
 	helm lint deploy/helm/mercutio $(HELM_TEST_ARGS)

@@ -42,5 +42,5 @@ google.golang.org/protobuf v1.36.11 h1:fV6ZwhNocDyBLK0dj+fg8ektcVegBBuEolpbTQyBN
 google.golang.org/protobuf v1.36.11/go.mod h1:HTf+CrKn2C3g5S8VImy6tdcUvCska2kB7j23XfzDpco=
 m31labs.dev/continuum v0.0.0-20260713211228-a1a913208f0c h1:uVS7fY/HBBWiuMs3vYVFnyMcE+VVZkfYRWkoWG49La8=
 m31labs.dev/continuum v0.0.0-20260713211228-a1a913208f0c/go.mod h1:gzlWJ7Zx5Z4CYj3kYbbXPD5BKDH39gUbpxNFNIGz2C4=
-m31labs.dev/horizon v0.4.1-0.20260714004857-9c66a7f52b54 h1:e/1Jmeqq/qMhav+JQytr7CqOvwYokuk/ugjmdxClARc=
-m31labs.dev/horizon v0.4.1-0.20260714004857-9c66a7f52b54/go.mod h1:OU3kizRo16gTDgUMG61HkXTZI39ankCbwheQQXtxyhc=
+m31labs.dev/horizon v0.4.1-0.20260714060137-ec6fed43c7d8 h1:KL+yc2Wh244GtIRErX5YR5Qqr/XuAiIjYWjaMNHNigI=
+m31labs.dev/horizon v0.4.1-0.20260714060137-ec6fed43c7d8/go.mod h1:OU3kizRo16gTDgUMG61HkXTZI39ankCbwheQQXtxyhc=

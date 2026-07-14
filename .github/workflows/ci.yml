@@ -17,6 +17,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Install enforcement compiler dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+            apt-get install -y -qq --no-install-recommends clang llvm libbpf-dev bpftool
+          sudo sh -c 'bpftool btf dump file /sys/kernel/btf/vmlinux format c > /usr/local/include/vmlinux.h'
       - name: Test
         run: make test
       - name: Verify tagged substrate dependencies

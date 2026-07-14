@@ -3,12 +3,12 @@
   "generator": "hzn workbench",
   "tool": {
     "name": "hzn",
-    "version": "v0.4.1-0.20260714004857-9c66a7f52b54",
+    "version": "v0.4.1-0.20260714060137-ec6fed43c7d8",
     "module": "m31labs.dev/horizon",
     "modified": false,
     "go_version": "go1.26.0"
   },
-  "generated_at": "2026-07-14T03:06:09Z",
+  "generated_at": "2026-07-14T06:02:12Z",
   "package": "mercutio",
   "sources": [
     {
@@ -72,8 +72,8 @@
     {
       "path": "generated/mercutio.bpf.o",
       "kind": "bpf_object",
-      "size": 843608,
-      "sha256": "5703bacb09afa79abf6a1e74e05ad82bcec4d4c00f6422a47dc054b50cc4dc78"
+      "size": 833440,
+      "sha256": "e3db7729b5855c6be256012a460785051f545be4b5520f22337f2176e2eca86a"
     },
     {
       "path": "generated/mercutio.hznmap.json",
@@ -101,6 +101,11 @@
     }
   ],
   "removed_stale_artifacts": [
+    "generated/mercutio.bpf.c",
+    "generated/mercutio.bpf.o",
+    "generated/mercutio.hznmap.json",
+    "generated/mercutio.bindings.go",
+    "generated/mercutio.cap.json",
     "generated/mercutio.diagnostics.json",
     "generated/mercutio.report.json"
   ],
