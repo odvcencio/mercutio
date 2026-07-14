@@ -28,3 +28,10 @@ func TestSecretScanTimeoutFallsBackWithoutTrustingPartialTree(t *testing.T) {
 		t.Fatalf("timed-out scan=%+v", scan)
 	}
 }
+
+func TestStructuralScanFindsSecretInCommentBytes(t *testing.T) {
+	scan := New().ScanSecrets("main.go", "package main\n// ghp_abcdefghijklmnopqrstuvwxyz1234567890\n")
+	if len(scan.Findings) == 0 || scan.Findings[0].Kind != "byte-pattern" || scan.Findings[0].Range.StartByte == scan.Findings[0].Range.EndByte {
+		t.Fatalf("comment secret escaped structural scan: %+v", scan)
+	}
+}

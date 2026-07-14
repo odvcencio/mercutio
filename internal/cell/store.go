@@ -819,6 +819,33 @@ func (s *Store) applyEditLocked(id string, r *record, path, content, actor strin
 	if secrets.IsSensitivePath(path) {
 		return model.CellSnapshot{}, fmt.Errorf("sensitive path %q must be edited through the secret broker", path)
 	}
+	actor = defaultValue(actor, "operator")
+	secretScan := intelligence.SecretScan{}
+	if secrets.ContainsSecretShape(content) {
+		secretScan = s.intelligence.ScanSecrets(path, content)
+	}
+	if len(secretScan.Findings) > 0 {
+		if !isAgentActor(actor) {
+			return model.CellSnapshot{}, fmt.Errorf("secret-shaped content must be stored through the secret broker")
+		}
+		current := ""
+		for i := range r.cell.Files {
+			if r.cell.Files[i].Path == path {
+				current = r.cell.Files[i].Content
+				break
+			}
+		}
+		base := baselineContent(r.baseline, path)
+		now := time.Now().UTC()
+		shadow := model.ShadowRevision{ID: s.nextShadowIDLocked(id), Path: path, Author: actor, Base: base, Before: secrets.RedactText(current), After: redactSecretFindings(content, secretScan.Findings), BaseHash: contentHash(base), Reason: "secret material rejected before CRDT ingestion", Status: "blocked", CreatedAt: now}
+		r.cell.Shadows = append(r.cell.Shadows, shadow)
+		r.cell.UpdatedAt = now
+		r.cell.Revision++
+		s.appendEvidenceLocked(r, "secret-edit-rejection", map[string]any{"shadowID": shadow.ID, "author": actor, "path": path, "findings": len(secretScan.Findings), "scanStatus": secretScan.Status})
+		s.appendEventLocked(r, model.Event{Kind: model.EventReview, Source: actor, Actor: actor, Action: "structural.secret.finding", Summary: "Agent edit was blocked before shared-document ingestion", Detail: "path=" + path + "; shadow=" + shadow.ID, Danger: "critical", Authenticated: true, Timestamp: now})
+		r.cell.Reviews = s.generateReviews(r)
+		return snapshotLocked(r), nil
+	}
 	idx := -1
 	for i := range r.cell.Files {
 		if r.cell.Files[i].Path == path {
@@ -840,7 +867,6 @@ func (s *Store) applyEditLocked(id string, r *record, path, content, actor strin
 	if !ok {
 		return model.CellSnapshot{}, fmt.Errorf("document %q is unavailable", path)
 	}
-	actor = defaultValue(actor, "operator")
 	current := r.cell.Files[idx].Content
 	writer := r.writers[path]
 	now := time.Now().UTC()
@@ -892,6 +918,37 @@ func (s *Store) applyEditLocked(id string, r *record, path, content, actor strin
 	s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: actor, Actor: actor, Action: "buffer.update", Summary: fmt.Sprintf("%s edited %s", actor, path), Detail: "The shared document revision was committed through the cell document.", Danger: "medium", Authenticated: strings.HasPrefix(actor, "operator-") || actor == "operator", Timestamp: r.cell.UpdatedAt})
 	r.cell.Reviews = s.generateReviews(r)
 	return snapshotLocked(r), nil
+}
+
+func redactSecretFindings(content string, findings []model.SecretFinding) string {
+	type span struct{ start, end int }
+	spans := make([]span, 0, len(findings))
+	for _, finding := range findings {
+		start, end := int(finding.Range.StartByte), int(finding.Range.EndByte)
+		if start < 0 || end <= start || end > len(content) {
+			continue
+		}
+		spans = append(spans, span{start: start, end: end})
+	}
+	if len(spans) == 0 {
+		return secrets.RedactText(content)
+	}
+	sort.Slice(spans, func(i, j int) bool {
+		if spans[i].start != spans[j].start {
+			return spans[i].start > spans[j].start
+		}
+		return spans[i].end > spans[j].end
+	})
+	redacted := content
+	lastStart := len(content) + 1
+	for _, item := range spans {
+		if item.end > lastStart {
+			continue
+		}
+		redacted = redacted[:item.start] + "<redacted>" + redacted[item.end:]
+		lastStart = item.start
+	}
+	return secrets.RedactText(redacted)
 }
 
 func humanWriterActive(r *record, path string, writer writerState, now time.Time) bool {

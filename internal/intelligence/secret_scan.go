@@ -54,6 +54,7 @@ func scanSecretsWithTimeout(path, content string, timeoutMicros uint64) SecretSc
 	}
 	result := SecretScan{Status: "structural"}
 	walkSecretNodes(tree.RootNode(), lang, source, &result)
+	appendByteSecretFindings(content, &result)
 	return result
 }
 
@@ -81,10 +82,24 @@ func secretNodeType(kind string) bool {
 }
 func fallbackSecretScan(content, reason string) SecretScan {
 	result := SecretScan{Status: "unavailable", Reason: reason}
-	if secrets.ContainsSecretShape(content) {
-		result.Findings = []model.SecretFinding{{Kind: "byte-pattern", Severity: "critical", Range: model.Range{EndByte: uint32(len(content))}, Redacted: "<redacted secret-shaped content>"}}
-	}
+	appendByteSecretFindings(content, &result)
 	return result
+}
+
+func appendByteSecretFindings(content string, result *SecretScan) {
+	for _, found := range secrets.FindSecretSpans(content) {
+		overlaps := false
+		for _, existing := range result.Findings {
+			if found.Start < int(existing.Range.EndByte) && int(existing.Range.StartByte) < found.End {
+				overlaps = true
+				break
+			}
+		}
+		if overlaps {
+			continue
+		}
+		result.Findings = append(result.Findings, model.SecretFinding{Kind: "byte-pattern", Severity: "critical", Range: rangeFromBytes(uint32(found.Start), uint32(found.End), []byte(content)), Redacted: "<redacted>"})
+	}
 }
 func knownUnreliable(path, content string) bool {
 	lower := strings.ToLower(path)

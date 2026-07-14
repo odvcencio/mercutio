@@ -1,13 +1,21 @@
 package cell
 
-import "testing"
+import (
+	"testing"
+
+	"m31labs.dev/mercutio/internal/model"
+)
 
 func TestSecretReviewRequiresExplicitAcknowledgmentAndRejectReason(t *testing.T) {
 	store := NewStore()
-	snapshot, err := store.ApplyEdit("cell-demo", "config.yaml", "token: ghp_abcdefghijklmnopqrstuvwxyz\n", "agent-cell-demo")
-	if err != nil {
-		t.Fatal(err)
-	}
+	reviews := store.reviews.Generate(
+		[]model.File{{Path: "config.yaml", Language: "yaml", Content: "token: brokered\n"}},
+		[]model.File{{Path: "config.yaml", Language: "yaml", Content: "token: ghp_abcdefghijklmnopqrstuvwxyz\n"}},
+	)
+	store.mu.Lock()
+	store.cells["cell-demo"].cell.Reviews = reviews
+	snapshot := snapshotLocked(store.cells["cell-demo"])
+	store.mu.Unlock()
 	var id string
 	for _, review := range snapshot.Reviews {
 		if len(review.SecretFindings) > 0 {
@@ -18,13 +26,13 @@ func TestSecretReviewRequiresExplicitAcknowledgmentAndRejectReason(t *testing.T)
 	if id == "" {
 		t.Fatal("no secret-blocked review")
 	}
-	if _, err = store.ApproveReview("cell-demo", id); err == nil {
+	if _, err := store.ApproveReview("cell-demo", id); err == nil {
 		t.Fatal("blocked review approved")
 	}
-	if _, err = store.AcknowledgeReview("cell-demo", id, "operator", "", true, false); err == nil {
+	if _, err := store.AcknowledgeReview("cell-demo", id, "operator", "", true, false); err == nil {
 		t.Fatal("empty acknowledgment accepted")
 	}
-	snapshot, err = store.AcknowledgeReview("cell-demo", id, "operator", "accepted test fixture", true, false)
+	snapshot, err := store.AcknowledgeReview("cell-demo", id, "operator", "accepted test fixture", true, false)
 	if err != nil {
 		t.Fatal(err)
 	}

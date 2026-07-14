@@ -94,8 +94,35 @@ func TestSnapshotRedactsSecretShapedShadowContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshot.Shadows) != 1 || strings.Contains(snapshot.Shadows[0].After, "ghp_") || !strings.Contains(strings.ToLower(snapshot.Shadows[0].After), "<redacted>") {
+	if len(snapshot.Shadows) != 1 || snapshot.Shadows[0].Status != "blocked" || strings.Contains(snapshot.Shadows[0].After, "ghp_") || !strings.Contains(strings.ToLower(snapshot.Shadows[0].After), "<redacted>") {
 		t.Fatalf("snapshot exposed secret-shaped shadow content: %+v", snapshot.Shadows)
+	}
+	file, err := store.File("cell-demo", path)
+	if err != nil || strings.Contains(file.Content, "ghp_") {
+		t.Fatalf("secret-shaped agent edit reached shared document: file=%q err=%v", file.Content, err)
+	}
+	foundD8 := false
+	for _, finding := range snapshot.Divergences {
+		foundD8 = foundD8 || finding.RuleID == "D8"
+	}
+	if !foundD8 {
+		t.Fatalf("blocked structural secret did not raise D8: %+v", snapshot.Divergences)
+	}
+}
+
+func TestOperatorSecretShapedEditIsRejectedBeforeCRDTMutation(t *testing.T) {
+	store := NewStore()
+	path := "cmd/hello/main.go"
+	before, err := store.File("cell-demo", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ApplyEdit("cell-demo", path, before.Content+"\nconst token = \"ghp_abcdefghijklmnopqrstuvwxyz1234567890\"\n", "operator"); err == nil || !strings.Contains(err.Error(), "secret broker") {
+		t.Fatalf("operator secret edit error=%v", err)
+	}
+	after, err := store.File("cell-demo", path)
+	if err != nil || after.Content != before.Content {
+		t.Fatalf("rejected secret edit mutated document: before=%q after=%q err=%v", before.Content, after.Content, err)
 	}
 }
 

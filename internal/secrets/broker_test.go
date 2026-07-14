@@ -18,3 +18,16 @@ func TestBrokerStoresByReceiptWithoutExposingValue(t *testing.T) {
 		t.Fatal("broker allowed access without capability")
 	}
 }
+
+func TestFindSecretSpansReturnsExactNonOverlappingRanges(t *testing.T) {
+	value := "before ghp_abcdefghijklmnopqrstuvwxyz after AKIAABCDEFGHIJKLMNOP end"
+	spans := FindSecretSpans(value)
+	if len(spans) != 2 {
+		t.Fatalf("spans=%+v", spans)
+	}
+	for _, span := range spans {
+		if span.Start < 0 || span.End <= span.Start || span.End > len(value) || !ContainsSecretShape(value[span.Start:span.End]) {
+			t.Fatalf("invalid secret span %+v", span)
+		}
+	}
+}

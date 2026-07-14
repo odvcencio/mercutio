@@ -167,13 +167,39 @@ var secretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`-----BEGIN [A-Z ]+ PRIVATE KEY-----`),
 }
 
-func ContainsSecretShape(value string) bool {
+type Span struct {
+	Start int
+	End   int
+}
+
+func FindSecretSpans(value string) []Span {
+	var spans []Span
 	for _, pattern := range secretPatterns {
-		if pattern.MatchString(value) {
-			return true
+		for _, match := range pattern.FindAllStringIndex(value, -1) {
+			spans = append(spans, Span{Start: match[0], End: match[1]})
 		}
 	}
-	return false
+	sort.Slice(spans, func(i, j int) bool {
+		if spans[i].Start != spans[j].Start {
+			return spans[i].Start < spans[j].Start
+		}
+		return spans[i].End < spans[j].End
+	})
+	result := spans[:0]
+	for _, item := range spans {
+		if len(result) > 0 && item.Start < result[len(result)-1].End {
+			if item.End > result[len(result)-1].End {
+				result[len(result)-1].End = item.End
+			}
+			continue
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func ContainsSecretShape(value string) bool {
+	return len(FindSecretSpans(value)) > 0
 }
 
 func RedactText(value string) string {
