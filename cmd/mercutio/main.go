@@ -32,6 +32,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "cell" {
+		os.Exit(runCell(os.Args[2:], os.Stdout, os.Stderr, nil))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "attach" {
 		runAttach(os.Args[2:])
 		return
