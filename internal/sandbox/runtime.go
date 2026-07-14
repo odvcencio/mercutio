@@ -687,6 +687,9 @@ func validateRenderedPod(pod *corev1.Pod) error {
 	if pod.Spec.HostNetwork || pod.Spec.HostPID || pod.Spec.HostIPC {
 		return fmt.Errorf("sandbox pod may not use host namespaces")
 	}
+	if pod.Spec.ShareProcessNamespace == nil || *pod.Spec.ShareProcessNamespace {
+		return fmt.Errorf("sandbox pod must explicitly disable process namespace sharing")
+	}
 	armgate := false
 	for _, container := range pod.Spec.InitContainers {
 		if container.Name == "armgate" {
@@ -731,6 +734,9 @@ func validateRenderedPod(pod *corev1.Pod) error {
 		return fmt.Errorf("sandbox pod requires separate agent and attach containers")
 	}
 	for _, volume := range pod.Spec.Volumes {
+		if volume.HostPath != nil {
+			return fmt.Errorf("sandbox pod may not mount host paths")
+		}
 		if volume.Secret != nil || volume.Projected != nil {
 			return fmt.Errorf("sandbox pod may not mount secret or projected volumes")
 		}
@@ -752,7 +758,7 @@ func validateContainer(container corev1.Container, allowSecretEnv bool) error {
 		return fmt.Errorf("image must be pinned by sha256 digest")
 	}
 	security := container.SecurityContext
-	if security == nil || security.AllowPrivilegeEscalation == nil || *security.AllowPrivilegeEscalation || security.Privileged != nil && *security.Privileged || security.ReadOnlyRootFilesystem == nil || !*security.ReadOnlyRootFilesystem || security.RunAsNonRoot == nil || !*security.RunAsNonRoot {
+	if security == nil || security.AllowPrivilegeEscalation == nil || *security.AllowPrivilegeEscalation || security.Privileged == nil || *security.Privileged || security.ReadOnlyRootFilesystem == nil || !*security.ReadOnlyRootFilesystem || security.RunAsNonRoot == nil || !*security.RunAsNonRoot {
 		return fmt.Errorf("restricted security context is required")
 	}
 	if security.Capabilities == nil || !containsCapability(security.Capabilities.Drop, corev1.Capability("ALL")) {

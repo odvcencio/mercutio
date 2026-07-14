@@ -203,6 +203,7 @@ metadata:
 spec:
   automountServiceAccountToken: false
   activeDeadlineSeconds: 3600
+  shareProcessNamespace: false
   securityContext:
     runAsNonRoot: true
     seccompProfile: {type: RuntimeDefault}
@@ -210,6 +211,7 @@ spec:
     - name: armgate
       image: armgate@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       securityContext: &restricted
+        privileged: false
         allowPrivilegeEscalation: false
         readOnlyRootFilesystem: true
         runAsNonRoot: true
@@ -276,6 +278,20 @@ spec:
 	}
 	if created.Spec.AutomountServiceAccountToken == nil || *created.Spec.AutomountServiceAccountToken {
 		t.Fatal("service-account token was not disabled")
+	}
+	if created.Spec.ShareProcessNamespace == nil || *created.Spec.ShareProcessNamespace {
+		t.Fatal("process namespace sharing was not explicitly disabled")
+	}
+	shared := created.DeepCopy()
+	enabled := true
+	shared.Spec.ShareProcessNamespace = &enabled
+	if err := validateRenderedPod(shared); err == nil {
+		t.Fatal("shared process namespace was accepted")
+	}
+	hostMounted := created.DeepCopy()
+	hostMounted.Spec.Volumes = append(hostMounted.Spec.Volumes, corev1.Volume{Name: "host", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/var/lib/kubelet/pods"}}})
+	if err := validateRenderedPod(hostMounted); err == nil {
+		t.Fatal("sandbox hostPath was accepted")
 	}
 	cell, err := dynamicClient.Resource(cellResource).Namespace("cells").Get(context.Background(), "cell-1", metav1.GetOptions{})
 	if err != nil {

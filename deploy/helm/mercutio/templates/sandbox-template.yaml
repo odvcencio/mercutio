@@ -21,6 +21,7 @@ data:
       hostNetwork: false
       hostPID: false
       hostIPC: false
+      shareProcessNamespace: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -34,6 +35,7 @@ data:
           command: ["/bin/sh", "-c"]
           args: ["cp /app/mercutio /run/mercutio/mercutio && chmod 0555 /run/mercutio/mercutio"]
           securityContext: &restricted
+            privileged: false
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             runAsNonRoot: true
