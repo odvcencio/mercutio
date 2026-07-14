@@ -46,6 +46,22 @@ func TestBrowserProtectionRequiresSessionCSRFToken(t *testing.T) {
 	}
 }
 
+func TestBrowserProtectionPreservesOperatorBearerClients(t *testing.T) {
+	t.Setenv("MERCUTIO_DEV_MODE", "1")
+	t.Setenv("MERCUTIO_OPERATOR_TOKEN", "cli-operator-token")
+	authn := FromEnv()
+	protected := authn.ProtectBrowser(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	request := httptest.NewRequest(http.MethodPost, "/api/cells", nil)
+	request.Header.Set("Authorization", "Bearer cli-operator-token")
+	response := httptest.NewRecorder()
+	protected.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("bearer client status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestInternalBoundaryRequiresVerifiedMTLSWhenConfigured(t *testing.T) {
 	authn := &Auth{eventToken: "event", requireInternalMTLS: true}
 	handler := authn.RequireInternal(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))

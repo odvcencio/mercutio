@@ -801,7 +801,7 @@ func (s *Store) ApplyEdit(id, path, content, actor string) (model.CellSnapshot, 
 	if !ok {
 		return model.CellSnapshot{}, fmt.Errorf("cell %q not found", id)
 	}
-	return s.applyEditLocked(id, r, path, content, actor)
+	return s.applyEditLocked(id, r, path, content, actor, true)
 }
 
 // ApplyDiskEdit ingests a sidecar-observed worktree change against the exact
@@ -831,7 +831,7 @@ func (s *Store) ApplyDiskEdit(id, path, base, content, actor string) (model.Cell
 		r.cell.Reviews = s.generateReviews(r)
 		return snapshotLocked(r), nil
 	}
-	return s.applyEditLocked(id, r, path, content, actor)
+	return s.applyEditLocked(id, r, path, content, actor, true)
 }
 
 // ApplyDiskDelete applies an observed unlink only when it is based on the
@@ -872,9 +872,9 @@ func (s *Store) ApplyDiskDelete(id, path, base, actor string) (model.CellSnapsho
 // points, matching the CRDT text model rather than UTF-16 browser offsets.
 func (s *Store) ApplySplice(id, path string, baseHash uint32, index, deleteCount uint32, insert, actor string) (model.CellSnapshot, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	r, ok := s.cells[id]
 	if !ok {
+		s.mu.Unlock()
 		return model.CellSnapshot{}, fmt.Errorf("cell %q not found", id)
 	}
 	current := ""
@@ -885,20 +885,26 @@ func (s *Store) ApplySplice(id, path string, baseHash uint32, index, deleteCount
 		}
 	}
 	if browserContentHash(current) != baseHash {
-		return snapshotLocked(r), fmt.Errorf("browser splice base is stale")
+		snapshot := snapshotLocked(r)
+		s.mu.Unlock()
+		return snapshot, fmt.Errorf("browser splice base is stale")
 	}
 	runes := []rune(current)
 	start := int(index)
 	end := start + int(deleteCount)
 	if start < 0 || start > len(runes) || end < start || end > len(runes) {
-		return snapshotLocked(r), fmt.Errorf("browser splice range is invalid")
+		snapshot := snapshotLocked(r)
+		s.mu.Unlock()
+		return snapshot, fmt.Errorf("browser splice range is invalid")
 	}
 	replacement := []rune(insert)
 	content := string(append(append(append([]rune(nil), runes[:start]...), replacement...), runes[end:]...))
-	return s.applyEditLocked(id, r, path, content, actor)
+	snapshot, err := s.applyEditLocked(id, r, path, content, actor, false)
+	s.mu.Unlock()
+	return snapshot, err
 }
 
-func (s *Store) applyEditLocked(id string, r *record, path, content, actor string) (model.CellSnapshot, error) {
+func (s *Store) applyEditLocked(id string, r *record, path, content, actor string, refreshReviews bool) (model.CellSnapshot, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return model.CellSnapshot{}, fmt.Errorf("file path is required")
@@ -1003,8 +1009,37 @@ func (s *Store) applyEditLocked(id string, r *record, path, content, actor strin
 	}
 	r.writers[path] = nextWriter
 	s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: actor, Actor: actor, Action: "buffer.update", Summary: fmt.Sprintf("%s edited %s", actor, path), Detail: "The shared document revision was committed through the cell document.", Danger: "medium", Authenticated: strings.HasPrefix(actor, "operator-") || actor == "operator", Timestamp: r.cell.UpdatedAt})
-	r.cell.Reviews = s.generateReviews(r)
+	if refreshReviews {
+		r.cell.Reviews = s.generateReviews(r)
+		_ = s.persistLocked()
+	}
 	return snapshotLocked(r), nil
+}
+
+// RefreshReviews recomputes structural review state after the collaboration
+// hot path has durably published a CRDT edit. The expected revision prevents a
+// slow analysis from overwriting review state for a newer edit.
+func (s *Store) RefreshReviews(id string, expectedRevision uint64) (model.CellSnapshot, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.cells[id]
+	if !ok {
+		return model.CellSnapshot{}, false, fmt.Errorf("cell %q not found", id)
+	}
+	if r.cell.Revision != expectedRevision || r.cell.Status == model.CellStopped {
+		return snapshotLocked(r), false, nil
+	}
+	reviews := s.generateReviews(r)
+	if reflect.DeepEqual(r.cell.Reviews, reviews) {
+		return snapshotLocked(r), false, nil
+	}
+	r.cell.Reviews = reviews
+	r.cell.Revision++
+	r.cell.UpdatedAt = time.Now().UTC()
+	if err := s.persistLocked(); err != nil {
+		return snapshotLocked(r), false, fmt.Errorf("persist refreshed structural reviews: %w", err)
+	}
+	return snapshotLocked(r), true, nil
 }
 
 func redactSecretFindings(content string, findings []model.SecretFinding) string {

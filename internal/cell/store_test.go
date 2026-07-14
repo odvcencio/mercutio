@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -106,6 +107,39 @@ func TestReconcileDoesNotRecreateStoppedSandbox(t *testing.T) {
 	}
 	if _, err := runtime.Observe(context.Background(), "cell-demo"); err != sandbox.ErrNotFound {
 		t.Fatalf("stopped sandbox was recreated: %v", err)
+	}
+}
+
+func TestBrowserSplicePublishesBeforeRevisionedReviewRefresh(t *testing.T) {
+	store := NewStore()
+	before, err := store.Snapshot("cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file model.File
+	for _, candidate := range before.Files {
+		if candidate.Path == "cmd/hello/main.go" {
+			file = candidate
+			break
+		}
+	}
+	if file.Path == "" {
+		t.Fatal("demo Go file is missing")
+	}
+	mainOffset := strings.Index(file.Content, "main")
+	if mainOffset < 0 {
+		t.Fatal("demo main function is missing")
+	}
+	immediate, err := store.ApplySplice("cell-demo", file.Path, browserContentHash(file.Content), uint32(mainOffset), uint32(len([]rune("main"))), "launch", "operator-browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if immediate.Revision != before.Revision+1 || !reflect.DeepEqual(immediate.Reviews, before.Reviews) {
+		t.Fatalf("hot path recomputed reviews: before=%d immediate=%d", before.Revision, immediate.Revision)
+	}
+	refreshed, changed, err := store.RefreshReviews("cell-demo", immediate.Revision)
+	if err != nil || !changed || refreshed.Revision != immediate.Revision+1 || reflect.DeepEqual(refreshed.Reviews, immediate.Reviews) {
+		t.Fatalf("review refresh changed=%v err=%v immediate=%d refreshed=%d", changed, err, immediate.Revision, refreshed.Revision)
 	}
 }
 

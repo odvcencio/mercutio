@@ -25,13 +25,15 @@ import (
 // available to the browser editor as it grows beyond the v1 snapshot path.
 type CellHub struct {
 	*hub.Hub
-	agentHub    *hub.Hub
-	store       *cell.Store
-	mu          sync.RWMutex
-	agents      map[string]agentSession
-	agentByCell map[string]string
-	commitMu    sync.Mutex
-	commits     map[string]pendingCommit
+	agentHub     *hub.Hub
+	store        *cell.Store
+	mu           sync.RWMutex
+	agents       map[string]agentSession
+	agentByCell  map[string]string
+	commitMu     sync.Mutex
+	commits      map[string]pendingCommit
+	reviewMu     sync.Mutex
+	reviewTimers map[string]*time.Timer
 }
 
 type agentSession struct {
@@ -52,7 +54,7 @@ type commitResult struct {
 }
 
 func NewCellHub(store *cell.Store) *CellHub {
-	h := &CellHub{Hub: hub.New("mercutio-cells"), agentHub: hub.New("mercutio-agents"), store: store, agents: make(map[string]agentSession), agentByCell: make(map[string]string), commits: make(map[string]pendingCommit)}
+	h := &CellHub{Hub: hub.New("mercutio-cells"), agentHub: hub.New("mercutio-agents"), store: store, agents: make(map[string]agentSession), agentByCell: make(map[string]string), commits: make(map[string]pendingCommit), reviewTimers: make(map[string]*time.Timer)}
 	h.configureBinaryAuthorization(h.Hub)
 	h.configureBinaryAuthorization(h.agentHub)
 	h.Hub.SetBinaryMessageHandler(func(client *hub.Client, data []byte) bool {
@@ -462,6 +464,7 @@ func (h *CellHub) handleBrowserSplice(client *hub.Client, data []byte) {
 		snapshot, err = h.store.ApplySplice(cellID, operation.Path, operation.BaseHash, operation.Index, operation.DeleteCount, operation.Insert, actor)
 		if err == nil {
 			h.BroadcastCell(snapshot)
+			h.scheduleReviewRefresh(cellID, snapshot.Revision)
 			return
 		}
 	}
@@ -469,6 +472,27 @@ func (h *CellHub) handleBrowserSplice(client *hub.Client, data []byte) {
 	if snapshot, snapshotErr := h.store.Snapshot(cellID); snapshotErr == nil {
 		h.Hub.Send(client.ID, "cell:update", snapshot)
 	}
+}
+
+func (h *CellHub) scheduleReviewRefresh(cellID string, revision uint64) {
+	h.reviewMu.Lock()
+	if existing := h.reviewTimers[cellID]; existing != nil {
+		existing.Stop()
+	}
+	var timer *time.Timer
+	timer = time.AfterFunc(150*time.Millisecond, func() {
+		snapshot, changed, err := h.store.RefreshReviews(cellID, revision)
+		if err == nil && changed {
+			h.BroadcastCell(snapshot)
+		}
+		h.reviewMu.Lock()
+		if h.reviewTimers[cellID] == timer {
+			delete(h.reviewTimers, cellID)
+		}
+		h.reviewMu.Unlock()
+	})
+	h.reviewTimers[cellID] = timer
+	h.reviewMu.Unlock()
 }
 
 func (h *CellHub) configureBinaryAuthorization(target *hub.Hub) {
