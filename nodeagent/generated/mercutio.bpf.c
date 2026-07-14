@@ -659,7 +659,7 @@ int GateExec(void *ctx) {
     event->hdr.ppid = hzn_current_ppid();
     event->hdr.tgid = event->hdr.pid;
     event->hdr.uid = hzn_current_uid();
-    event->hdr.kind = 1;
+    event->hdr.kind = 4;
     event->hdr.verdict = verdict;
     hzn_current_comm(&event->hdr.comm, sizeof(event->hdr.comm));
     ExecEvents_submit(event);

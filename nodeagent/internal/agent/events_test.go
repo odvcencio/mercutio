@@ -45,3 +45,44 @@ func TestEventRejectsIdentityFromAnotherProfileClass(t *testing.T) {
 		t.Fatal("event from a different profile-class collection was accepted")
 	}
 }
+
+func TestOpenEventMetadataNamesObserveProgramsWithoutControlDanger(t *testing.T) {
+	fileName, fileDanger := fileProgramMetadata(2)
+	if fileName != "ObserveFileOpen" || fileDanger["mode"] != "observe" || fileDanger["scope"] != "event" || fileDanger["reversibility"] != "none" {
+		t.Fatalf("open file metadata = %s %+v", fileName, fileDanger)
+	}
+	for family, want := range map[uint16]string{2: "ObserveConnect4", 10: "ObserveConnect6"} {
+		name, programDanger := connectProgramMetadata(2, family)
+		if name != want || programDanger["mode"] != "observe" || programDanger["scope"] != "event" || programDanger["reversibility"] != "none" {
+			t.Fatalf("open connect family %d metadata = %s %+v", family, name, programDanger)
+		}
+	}
+}
+
+func TestContainedEventMetadataNamesControlPrograms(t *testing.T) {
+	execName, execDanger := execProgramMetadata(4)
+	if execName != "GateExec" || execDanger["mode"] != "control" || execDanger["scope"] != "process" || execDanger["reversibility"] != "restart" {
+		t.Fatalf("gate exec metadata = %s %+v", execName, execDanger)
+	}
+	fileName, fileDanger := fileProgramMetadata(1)
+	if fileName != "GateFileOpen" || fileDanger["mode"] != "control" || fileDanger["scope"] != "filesystem" || fileDanger["reversibility"] != "restart" {
+		t.Fatalf("standard file metadata = %s %+v", fileName, fileDanger)
+	}
+	for family, want := range map[uint16]string{2: "GateConnect4", 10: "GateConnect6"} {
+		name, programDanger := connectProgramMetadata(1, family)
+		if name != want || programDanger["mode"] != "control" || programDanger["scope"] != "network" || programDanger["reversibility"] != "restart" {
+			t.Fatalf("standard connect family %d metadata = %s %+v", family, name, programDanger)
+		}
+	}
+}
+
+func TestExecMetadataDoesNotDependOnRecordedPath(t *testing.T) {
+	name, programDanger := execProgramMetadata(4)
+	if name != "GateExec" || programDanger["mode"] != "control" {
+		t.Fatalf("gate event with an unreadable path would be mislabeled: %s %+v", name, programDanger)
+	}
+	name, programDanger = execProgramMetadata(1)
+	if name != "OnExec" || programDanger["mode"] != "observe" {
+		t.Fatalf("tracepoint event metadata = %s %+v", name, programDanger)
+	}
+}

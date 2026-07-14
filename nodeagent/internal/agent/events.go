@@ -32,13 +32,7 @@ func (m *ProgramManager) readExecEvents(programs *classPrograms) {
 		event.Path = nulString(raw.Filename[:])
 		event.Argv = argvString(raw.ArgvHead[:])
 		event.ArgvTruncated = raw.ArgvTrunc != 0
-		if event.Path != "" {
-			event.Program = "GateExec"
-			event.ProgramDanger = danger("control", "process", "restart")
-		} else {
-			event.Program = "OnExec"
-			event.ProgramDanger = danger("observe", "event", "none")
-		}
+		event.Program, event.ProgramDanger = execProgramMetadata(raw.Hdr.Kind)
 		event.ActionDanger = danger("mutate", "process", "restart")
 		m.options.Queue.Enqueue(event)
 		return nil
@@ -46,6 +40,13 @@ func (m *ProgramManager) readExecEvents(programs *classPrograms) {
 	if err != nil && programs.readerCtx.Err() == nil {
 		m.options.Queue.AddKernelDrops(fmt.Sprintf("class-%d-exec-reader", programs.class), 1)
 	}
+}
+
+func execProgramMetadata(kind uint32) (string, map[string]string) {
+	if kind == 4 {
+		return "GateExec", danger("control", "process", "restart")
+	}
+	return "OnExec", danger("observe", "event", "none")
 }
 
 func argvString(value []byte) string {
@@ -63,8 +64,7 @@ func (m *ProgramManager) readFileEvents(programs *classPrograms) {
 		event.Path = nulString(raw.Path[:])
 		event.PathTruncated = raw.PathTrunc != 0
 		event.Flags, event.Mode, event.Operation = raw.Flags, raw.Mode, raw.Op
-		event.Program = "GateFileOpen"
-		event.ProgramDanger = danger("control", "filesystem", "restart")
+		event.Program, event.ProgramDanger = fileProgramMetadata(programs.class)
 		event.ActionDanger = danger(fileMode(raw.Flags), "filesystem", "restart")
 		m.options.Queue.Enqueue(event)
 		return nil
@@ -84,14 +84,12 @@ func (m *ProgramManager) readConnectEvents(programs *classPrograms) {
 		var ip net.IP
 		if raw.Family == 10 {
 			ip = append(net.IP(nil), raw.DstIp6[:]...)
-			event.Program = "GateConnect6"
 		} else {
 			ip = make(net.IP, net.IPv4len)
 			binary.BigEndian.PutUint32(ip, raw.DstIp4)
-			event.Program = "GateConnect4"
 		}
+		event.Program, event.ProgramDanger = connectProgramMetadata(programs.class, raw.Family)
 		event.Destination = net.JoinHostPort(ip.String(), fmt.Sprint(raw.DstPort))
-		event.ProgramDanger = danger("control", "network", "none")
 		event.ActionDanger = danger("mutate", "network", "none")
 		m.options.Queue.Enqueue(event)
 		return nil
@@ -99,6 +97,29 @@ func (m *ProgramManager) readConnectEvents(programs *classPrograms) {
 	if err != nil && programs.readerCtx.Err() == nil {
 		m.options.Queue.AddKernelDrops(fmt.Sprintf("class-%d-connect-reader", programs.class), 1)
 	}
+}
+
+func fileProgramMetadata(class uint32) (string, map[string]string) {
+	if class == 2 {
+		return "ObserveFileOpen", danger("observe", "event", "none")
+	}
+	return "GateFileOpen", danger("control", "filesystem", "restart")
+}
+
+func connectProgramMetadata(class uint32, family uint16) (string, map[string]string) {
+	name := "GateConnect4"
+	if family == 10 {
+		name = "GateConnect6"
+	}
+	if class == 2 {
+		if family == 10 {
+			name = "ObserveConnect6"
+		} else {
+			name = "ObserveConnect4"
+		}
+		return name, danger("observe", "event", "none")
+	}
+	return name, danger("control", "network", "restart")
 }
 
 func (m *ProgramManager) readDropCounters(programs *classPrograms) {
