@@ -13,13 +13,14 @@ import (
 )
 
 const (
-	execAllow = uint32(1)
-	execDeny  = uint32(2)
+	execAllow            = uint32(1)
+	execDeny             = uint32(2)
+	execAllowInterpreter = uint32(3)
+	execInterpreter      = uint32(4)
 )
 
 var strictExecPaths = []string{
-	"/usr/local/go/bin/go", "/usr/bin/go", "/usr/bin/node", "/usr/bin/python3", "/usr/bin/cargo",
-	"/usr/local/bin/claude", "/usr/bin/claude", "/usr/local/bin/tiller", "/usr/bin/tiller",
+	"/usr/local/go/bin/go", "/usr/bin/go", "/usr/bin/cargo",
 	"/usr/bin/git", "/usr/bin/graft", "/usr/bin/buckley", "/usr/local/bin/graft", "/usr/local/bin/buckley",
 	"/bin/cat", "/bin/cp", "/bin/cut", "/bin/date", "/bin/echo", "/bin/env", "/bin/find", "/bin/grep",
 	"/bin/head", "/bin/ls", "/bin/mkdir", "/bin/mv", "/bin/pwd", "/bin/rm", "/bin/sed", "/bin/sort",
@@ -28,6 +29,14 @@ var strictExecPaths = []string{
 	"/usr/bin/find", "/usr/bin/grep", "/usr/bin/head", "/usr/bin/ls", "/usr/bin/mkdir", "/usr/bin/mv",
 	"/usr/bin/pwd", "/usr/bin/rm", "/usr/bin/sed", "/usr/bin/sort", "/usr/bin/tail", "/usr/bin/tar",
 	"/usr/bin/touch", "/usr/bin/tr", "/usr/bin/uniq", "/usr/bin/wc",
+}
+
+var strictAgentPaths = []string{
+	"/usr/local/bin/claude", "/usr/bin/claude", "/usr/local/bin/tiller", "/usr/bin/tiller",
+}
+
+var strictInterpreterPaths = []string{
+	"/usr/bin/node", "/usr/local/bin/node", "/usr/bin/python3", "/usr/local/bin/python3",
 }
 
 var standardExecPrefixes = []string{"/bin", "/usr/bin", "/usr/local/bin", "/usr/local/go/bin"}
@@ -62,6 +71,12 @@ func (m *ProgramManager) installExecRules(cell Cell, programs *classPrograms, cl
 			for _, path := range strictExecPaths {
 				addExecPath(rules, root, path, execAllow)
 			}
+			for _, path := range strictAgentPaths {
+				addStrictAgentPath(rules, root, path)
+			}
+			for _, path := range strictInterpreterPaths {
+				addExecPath(rules, root, path, execInterpreter)
+			}
 		} else if class == 1 {
 			for _, prefix := range standardExecPrefixes {
 				addExecTree(rules, root, prefix, execAllow)
@@ -77,6 +92,19 @@ func (m *ProgramManager) installExecRules(cell Cell, programs *classPrograms, cl
 		}
 	}
 	return nil
+}
+
+func addStrictAgentPath(rules map[bindings.ExecKey]uint32, root, path string) {
+	resolved := filepath.Join(root, strings.TrimPrefix(path, "/"))
+	verdict := execAllow
+	if file, err := os.Open(resolved); err == nil {
+		defer file.Close()
+		magic := make([]byte, 2)
+		if count, _ := file.Read(magic); count == 2 && string(magic) == "#!" {
+			verdict = execAllowInterpreter
+		}
+	}
+	addExecFile(rules, resolved, verdict)
 }
 
 func cellProcessRoots(procRoot, cgroupPath string) ([]string, error) {

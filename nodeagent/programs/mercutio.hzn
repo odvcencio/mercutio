@@ -91,6 +91,15 @@ type ExecRule struct {
     verdict u32
 }
 
+type InterpreterKey struct {
+    cgroup_id u64
+    pid u32
+}
+
+type InterpreterGrantVal struct {
+    expires_ns u64
+}
+
 type FileKey struct {
     cgroup_id u64
     dev u64
@@ -118,6 +127,9 @@ map ActionGrant hash[ActionKey, u8]
 
 @max_entries(32768)
 map ExecRules hash[ExecKey, ExecRule]
+
+@max_entries(4096)
+map InterpreterGrant hash[InterpreterKey, InterpreterGrantVal]
 
 @max_entries(65536)
 map FileRules hash[FileKey, FileRule]
@@ -208,11 +220,27 @@ func GateExec(ctx lsm.Context) i32 {
     exec_dev := lsm.bprm_dev(ctx)
     exec_ino := lsm.bprm_ino(ctx)
     exec_rule := ExecRules.lookup(ExecKey{dev: exec_dev, ino: exec_ino})
+    interpreter_key := InterpreterKey{cgroup_id: cgroup_id, pid: bpf.current_pid()}
     if scope.class == 0 {
         verdict = 1
         if exec_rule != nil {
             if exec_rule.verdict == 1 {
                 verdict = 0
+            } else if exec_rule.verdict == 3 {
+                verdict = 0
+                if InterpreterGrant.update(interpreter_key, InterpreterGrantVal{expires_ns: bpf.ktime_get_ns() + u64(250000000)}) != 0 {
+                    verdict = 1
+                }
+            } else if exec_rule.verdict == 4 {
+                interpreter_grant := InterpreterGrant.lookup(interpreter_key)
+                if interpreter_grant != nil {
+                    if interpreter_grant.expires_ns >= bpf.ktime_get_ns() {
+                        verdict = 0
+                    }
+                    if InterpreterGrant.delete(interpreter_key) != 0 {
+                        verdict = 1
+                    }
+                }
             }
         }
     } else if scope.class == 1 {
@@ -259,30 +287,19 @@ func GateFileOpen(ctx lsm.Context) i32 {
     if scope == nil {
         return lsm.Allow
     }
-    event := FileEvents.reserve()
-    if event == nil {
-        bump_drop(2)
-        if scope.class == 2 {
-            return lsm.Allow
-        }
-        return lsm.Deny
-    }
-    event.flags = lsm.file_flags(ctx)
-    event.mode = lsm.file_mode(ctx)
+    flags := lsm.file_flags(ctx)
+    mode := lsm.file_mode(ctx)
     file_dev := lsm.file_dev(ctx)
     file_ino := lsm.file_ino(ctx)
     parent_ino := lsm.file_parent_ino(ctx)
     verdict := u32(0)
-    if lsm.file_path(ctx, &event.path) < 0 {
-        event.path_trunc = 1
-    }
     proc_other := lsm.file_is_proc_other(ctx)
     direct_rule := FileRules.lookup(FileKey{cgroup_id: cgroup_id, dev: file_dev, ino: file_ino})
     parent_rule := FileRules.lookup(FileKey{cgroup_id: cgroup_id, dev: file_dev, ino: parent_ino})
     if proc_other {
         verdict = 1
     }
-    writing := event.flags & (lsm.FModeWrite | lsm.OCreat | lsm.OTrunc | lsm.OAppend)
+    writing := flags & (lsm.FModeWrite | lsm.OCreat | lsm.OTrunc | lsm.OAppend)
 	if direct_rule != nil {
 		if direct_rule.verdict == 1 {
 			verdict = 1
@@ -304,6 +321,25 @@ func GateFileOpen(ctx lsm.Context) i32 {
     file_grant := ActionGrant.lookup(ActionKey{cgroup_id: cgroup_id, pid: bpf.current_pid(), kind: 2})
     if verdict == 2 && file_grant != nil {
         verdict = 3
+    }
+    if verdict == 0 && (bpf.ktime_get_ns() & u64(63)) != 0 {
+        return lsm.Allow
+    }
+    event := FileEvents.reserve()
+    if event == nil {
+        bump_drop(2)
+        if verdict == 1 || verdict == 2 {
+            return lsm.Deny
+        }
+        if scope.class == 2 {
+            return lsm.Allow
+        }
+        return lsm.Deny
+    }
+    event.flags = flags
+    event.mode = mode
+    if lsm.file_path(ctx, &event.path) < 0 {
+        event.path_trunc = 1
     }
     event.hdr.ts_ns = bpf.ktime_get_ns()
     event.hdr.cell_lo = scope.cell_lo

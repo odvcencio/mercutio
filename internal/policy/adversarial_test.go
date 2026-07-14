@@ -80,6 +80,7 @@ func TestProfileSwitchHasExactKernelDifferences(t *testing.T) {
 	}{
 		{policy.AccessRequest{Action: "exec", Domain: "shell", Op: "execute"}, "deny", "allow", "allow"},
 		{policy.AccessRequest{Action: "exec", Domain: "inline", Op: "execute"}, "deny", "allow", "allow"},
+		{policy.AccessRequest{Action: "exec", Domain: "interpreter", Op: "execute"}, "deny", "allow", "allow"},
 		{policy.AccessRequest{Action: "exec", Domain: "network-tool", Op: "execute"}, "deny", "allow", "allow"},
 		{policy.AccessRequest{Action: "exec", Domain: "worktree-binary", Op: "execute"}, "deny", "ask", "allow"},
 		{policy.AccessRequest{Action: "file", Domain: "ci", Op: "write"}, "ask", "ask", "allow"},

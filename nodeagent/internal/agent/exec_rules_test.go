@@ -50,3 +50,31 @@ func TestCellProcessRootsAndExecInodesUseContainerRoot(t *testing.T) {
 		}
 	}
 }
+
+func TestStrictAgentScriptsReceiveSingleUseInterpreterGrant(t *testing.T) {
+	root := t.TempDir()
+	for path, content := range map[string]string{
+		"/usr/local/bin/claude": "#!/usr/bin/env node\n",
+		"/usr/local/bin/tiller": "native-binary",
+		"/usr/bin/node":         "node-binary",
+	} {
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rules := map[bindings.ExecKey]uint32{}
+	addStrictAgentPath(rules, root, "/usr/local/bin/claude")
+	addStrictAgentPath(rules, root, "/usr/local/bin/tiller")
+	addExecPath(rules, root, "/usr/bin/node", execInterpreter)
+	counts := map[uint32]int{}
+	for _, verdict := range rules {
+		counts[verdict]++
+	}
+	if counts[execAllowInterpreter] != 1 || counts[execAllow] != 1 || counts[execInterpreter] != 1 {
+		t.Fatalf("strict executable verdicts = %v", counts)
+	}
+}

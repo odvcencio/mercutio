@@ -9,7 +9,7 @@ rule DenyOtherReads priority 90 { when { action == "file" and resource.domain ==
 
 rule DenyPrivilegeExec priority 1 { when { action == "exec" and resource.domain == "privilege" } then Deny { reason: "privilege tools are blocked" } }
 rule AskWorktreeExec priority 2 { when { action == "exec" and resource.domain == "worktree-binary" } then AskHuman { reason: "unknown worktree binary requires approval" } }
-rule AllowStandardExec priority 10 { when { action == "exec" and (resource.domain == "toolchain" or resource.domain == "vcs" or resource.domain == "coreutils" or resource.domain == "shell" or resource.domain == "network-tool" or resource.domain == "package-manager" or resource.domain == "inline") } then Allow { reason: "standard executable scope" } }
+rule AllowStandardExec priority 10 { when { action == "exec" and (resource.domain == "toolchain" or resource.domain == "interpreter" or resource.domain == "vcs" or resource.domain == "coreutils" or resource.domain == "shell" or resource.domain == "network-tool" or resource.domain == "package-manager" or resource.domain == "inline") } then Allow { reason: "standard executable scope" } }
 
 rule AllowStandardNet priority 10 { when { action == "net" and (resource.domain == "control-plane" or resource.domain == "dns" or resource.domain == "registry-mirror" or resource.domain == "dependency") } then Allow { reason: "standard egress allowlist" } }
 rule AskPublicNet priority 15 { when { action == "net" and resource.domain == "public" } then AskHuman { reason: "non-allowlisted egress requires approval" } }

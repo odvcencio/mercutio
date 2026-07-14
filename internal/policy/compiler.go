@@ -55,7 +55,7 @@ var fileDomain = map[string][]string{
 }
 
 var execDomain = map[string][]string{
-	"toolchain": {"go", "node", "python3", "cargo", "test-runners"}, "vcs": {"graft", "buckley", "git"}, "coreutils": {"coreutils"},
+	"toolchain": {"go", "cargo", "test-runners"}, "interpreter": {"node", "python3"}, "vcs": {"graft", "buckley", "git"}, "coreutils": {"coreutils"},
 	"shell": {"sh", "bash", "zsh"}, "network-tool": {"curl", "wget", "nc", "ssh", "scp"}, "package-manager": {"npm", "pip", "cargo", "go"},
 	"inline": {"python3 -c", "node -e", "sh -c"}, "worktree-binary": {"/workspace/repo/*"}, "privilege": {"sudo", "su", "mount", "insmod", "setcap"},
 }

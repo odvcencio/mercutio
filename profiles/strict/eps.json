@@ -1,9 +1,9 @@
 {
   "schema": "m31labs.dev/mercutio/eps/v1",
   "profile": "strict",
-  "sourceDigest": "sha256:67c124b0a0c6b0486ff9e2f115ff4eb80326b27df8c6879c2c2b1176ee65f887",
-  "horizonDigest": "sha256:c44e930d71a1daa3d367dae9d2962f0f8d9f2f27f0a64baaa74b3cfec2395a40",
-  "profileDigest": "sha256:a71eb02866aa3b6182bb0026b20190464281f754fb996a6ae64353ac980b4820",
+  "sourceDigest": "sha256:b631b34c36cb5a9ac3646efb953839a402107be354e0c4ea068b0b56548446bc",
+  "horizonDigest": "sha256:97773aec809137beb2809057ce040b3fda2cc9a23a1716b5362d0a585ee91ede",
+  "profileDigest": "sha256:775e9a07d73df1703f3a2608e8cf3bec26e4b65d2981a62646de08c44391518e",
   "filesystem": [
     {
       "domain": "cache",
@@ -228,6 +228,15 @@
       "rule": "DenyStrictExec"
     },
     {
+      "domain": "interpreter",
+      "targets": [
+        "node",
+        "python3"
+      ],
+      "verdict": "deny",
+      "rule": "DenyStrictExec"
+    },
+    {
       "domain": "network-tool",
       "targets": [
         "curl",
@@ -276,8 +285,6 @@
       "domain": "toolchain",
       "targets": [
         "go",
-        "node",
-        "python3",
         "cargo",
         "test-runners"
       ],

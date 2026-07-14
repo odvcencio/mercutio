@@ -289,6 +289,23 @@ func deleteCellScopes(objects *bindings.Objects, ids []uint64) {
 	}
 }
 
+func deleteInterpreterGrants(objects *bindings.Objects, ids []uint64) {
+	wanted := make(map[uint64]bool, len(ids))
+	for _, id := range ids {
+		wanted[id] = true
+	}
+	var keys []bindings.InterpreterKey
+	_ = objects.ForEachInterpreterGrant(func(key bindings.InterpreterKey, _ bindings.InterpreterGrantVal) error {
+		if wanted[key.CgroupId] {
+			keys = append(keys, key)
+		}
+		return nil
+	})
+	for _, key := range keys {
+		_ = objects.DeleteInterpreterGrant(key)
+	}
+}
+
 func (m *ProgramManager) disarmLoaded(loaded *loadedCell) {
 	for _, item := range loaded.links {
 		_ = item.Close()
@@ -302,6 +319,7 @@ func (m *ProgramManager) disarmLoaded(loaded *loadedCell) {
 	for _, key := range loaded.fileKeys {
 		_ = loaded.programs.objects.DeleteFileRules(key)
 	}
+	deleteInterpreterGrants(loaded.programs.objects, cellCgroupIDs(loaded.cell))
 }
 
 // rollbackArm removes only resources introduced by the attempted arm. When a
@@ -328,6 +346,7 @@ func (m *ProgramManager) rollbackArm(attempt, previous *loadedCell) {
 		}
 	}
 	deleteCellScopes(attempt.programs.objects, cellCgroupIDs(attempt.cell))
+	deleteInterpreterGrants(attempt.programs.objects, cellCgroupIDs(attempt.cell))
 	if sameCollection {
 		m.restoreCellScopes(previous)
 	}

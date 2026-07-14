@@ -8,7 +8,7 @@ rule DenyOtherFiles priority 90 { when { action == "file" and (resource.domain =
 rule DenyOtherReads priority 90 { when { action == "file" and resource.domain == "other" and resource.op == "read" } then Deny { reason: "undeclared file scope" } }
 
 rule AllowStrictExec priority 10 { when { action == "exec" and (resource.domain == "toolchain" or resource.domain == "vcs" or resource.domain == "coreutils") } then Allow { reason: "strict executable allowlist" } }
-rule DenyStrictExec priority 20 { when { action == "exec" and (resource.domain == "shell" or resource.domain == "network-tool" or resource.domain == "package-manager" or resource.domain == "inline" or resource.domain == "worktree-binary" or resource.domain == "privilege") } then Deny { reason: "not on strict executable allowlist" } }
+rule DenyStrictExec priority 20 { when { action == "exec" and (resource.domain == "interpreter" or resource.domain == "shell" or resource.domain == "network-tool" or resource.domain == "package-manager" or resource.domain == "inline" or resource.domain == "worktree-binary" or resource.domain == "privilege") } then Deny { reason: "not on strict executable allowlist" } }
 
 rule AllowStrictNet priority 10 { when { action == "net" and (resource.domain == "control-plane" or resource.domain == "dns" or resource.domain == "registry-mirror") } then Allow { reason: "required cluster service" } }
 rule DenyStrictNet priority 20 { when { action == "net" and (resource.domain == "dependency" or resource.domain == "public" or resource.domain == "private" or resource.domain == "metadata" or resource.domain == "kubernetes" or resource.domain == "cell") } then Deny { reason: "strict egress deny" } }

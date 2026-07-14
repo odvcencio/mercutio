@@ -241,9 +241,12 @@
         "read": [
           "CellScope",
           "ExecRules",
+          "InterpreterGrant",
           "ActionGrant"
         ],
-        "write": [],
+        "write": [
+          "InterpreterGrant"
+        ],
         "events": [
           "ExecEvents"
         ]
@@ -290,6 +293,10 @@
           {
             "name": "bpf_ktime_get_ns",
             "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_map_delete_elem",
+            "min_kernel": "3.19"
           },
           {
             "name": "bpf_map_lookup_elem",
@@ -383,6 +390,13 @@
           ]
         },
         {
+          "name": "map.delete",
+          "mutates": [
+            "map:InterpreterGrant"
+          ],
+          "resource": "delete"
+        },
+        {
           "name": "map.lookup",
           "observes": [
             "map:CellScope"
@@ -392,7 +406,7 @@
         {
           "name": "map.update",
           "mutates": [
-            "map:Drops"
+            "map:InterpreterGrant"
           ],
           "resource": "update"
         },
@@ -1070,6 +1084,13 @@
       "max_entries": "32768"
     },
     {
+      "name": "InterpreterGrant",
+      "kind": "hash",
+      "key": "InterpreterKey",
+      "value": "InterpreterGrantVal",
+      "max_entries": "4096"
+    },
+    {
       "name": "FileRules",
       "kind": "hash",
       "key": "FileKey",
@@ -1455,6 +1476,37 @@
       ]
     },
     {
+      "name": "InterpreterKey",
+      "kind": "struct",
+      "size": 16,
+      "align": 8,
+      "fields": [
+        {
+          "name": "cgroup_id",
+          "type": "u64",
+          "offset": 0
+        },
+        {
+          "name": "pid",
+          "type": "u32",
+          "offset": 8
+        }
+      ]
+    },
+    {
+      "name": "InterpreterGrantVal",
+      "kind": "struct",
+      "size": 8,
+      "align": 8,
+      "fields": [
+        {
+          "name": "expires_ns",
+          "type": "u64",
+          "offset": 0
+        }
+      ]
+    },
+    {
       "name": "FileKey",
       "kind": "struct",
       "size": 24,
@@ -1549,6 +1601,10 @@
       {
         "name": "bpf_ktime_get_ns",
         "min_kernel": "4.1"
+      },
+      {
+        "name": "bpf_map_delete_elem",
+        "min_kernel": "3.19"
       },
       {
         "name": "bpf_map_lookup_elem",

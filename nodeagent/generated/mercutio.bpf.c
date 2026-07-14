@@ -319,6 +319,20 @@ struct hzn_type_ExecRule {
 _Static_assert(sizeof(struct hzn_type_ExecRule) == 4, "horizon: struct ExecRule size mismatch");
 _Static_assert(__builtin_offsetof(struct hzn_type_ExecRule, verdict) == 0, "horizon: struct ExecRule.verdict offset mismatch");
 
+struct hzn_type_InterpreterKey {
+    __u64 cgroup_id;
+    __u32 pid;
+};
+_Static_assert(sizeof(struct hzn_type_InterpreterKey) == 16, "horizon: struct InterpreterKey size mismatch");
+_Static_assert(__builtin_offsetof(struct hzn_type_InterpreterKey, cgroup_id) == 0, "horizon: struct InterpreterKey.cgroup_id offset mismatch");
+_Static_assert(__builtin_offsetof(struct hzn_type_InterpreterKey, pid) == 8, "horizon: struct InterpreterKey.pid offset mismatch");
+
+struct hzn_type_InterpreterGrantVal {
+    __u64 expires_ns;
+};
+_Static_assert(sizeof(struct hzn_type_InterpreterGrantVal) == 8, "horizon: struct InterpreterGrantVal size mismatch");
+_Static_assert(__builtin_offsetof(struct hzn_type_InterpreterGrantVal, expires_ns) == 0, "horizon: struct InterpreterGrantVal.expires_ns offset mismatch");
+
 struct hzn_type_FileKey {
     __u64 cgroup_id;
     __u64 dev;
@@ -379,6 +393,13 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 4096);
+    __type(key, struct hzn_type_InterpreterKey);
+    __type(value, struct hzn_type_InterpreterGrantVal);
+} InterpreterGrant SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 65536);
     __type(key, struct hzn_type_FileKey);
     __type(value, struct hzn_type_FileRule);
@@ -425,6 +446,18 @@ static __always_inline __u8 *ActionGrant_lookup(struct hzn_type_ActionKey key) {
 
 static __always_inline struct hzn_type_ExecRule *ExecRules_lookup(struct hzn_type_ExecKey key) {
     return bpf_map_lookup_elem(&ExecRules, &key);
+}
+
+static __always_inline struct hzn_type_InterpreterGrantVal *InterpreterGrant_lookup(struct hzn_type_InterpreterKey key) {
+    return bpf_map_lookup_elem(&InterpreterGrant, &key);
+}
+
+static __always_inline long InterpreterGrant_update(struct hzn_type_InterpreterKey key, struct hzn_type_InterpreterGrantVal value) {
+    return bpf_map_update_elem(&InterpreterGrant, &key, &value, BPF_ANY);
+}
+
+static __always_inline long InterpreterGrant_delete(struct hzn_type_InterpreterKey key) {
+    return bpf_map_delete_elem(&InterpreterGrant, &key);
 }
 
 static __always_inline struct hzn_type_FileRule *FileRules_lookup(struct hzn_type_FileKey key) {
@@ -528,11 +561,31 @@ int GateExec(void *ctx) {
     __u64 exec_dev = hzn_lsm_bprm_dev(ctx);
     __u64 exec_ino = hzn_lsm_bprm_ino(ctx);
     struct hzn_type_ExecRule *exec_rule = ExecRules_lookup((struct hzn_type_ExecKey){ .dev = exec_dev, .ino = exec_ino });
+    struct hzn_type_InterpreterKey interpreter_key = (struct hzn_type_InterpreterKey){ .cgroup_id = cgroup_id, .pid = hzn_current_pid() };
     if (scope->class == 0) {
         verdict = 1;
         if (exec_rule != 0) {
             if (exec_rule->verdict == 1) {
                 verdict = 0;
+            } else {
+                if (exec_rule->verdict == 3) {
+                    verdict = 0;
+                    if (InterpreterGrant_update(interpreter_key, (struct hzn_type_InterpreterGrantVal){ .expires_ns = hzn_ktime_get_ns() + (__u64)(250000000) }) != 0) {
+                        verdict = 1;
+                    }
+                } else {
+                    if (exec_rule->verdict == 4) {
+                        struct hzn_type_InterpreterGrantVal *interpreter_grant = InterpreterGrant_lookup(interpreter_key);
+                        if (interpreter_grant != 0) {
+                            if (interpreter_grant->expires_ns >= hzn_ktime_get_ns()) {
+                                verdict = 0;
+                            }
+                            if (InterpreterGrant_delete(interpreter_key) != 0) {
+                                verdict = 1;
+                            }
+                        }
+                    }
+                }
             }
         }
     } else {
@@ -585,30 +638,19 @@ int GateFileOpen(void *ctx) {
     if (scope == 0) {
         return HZN_LSM_ALLOW;
     }
-    struct hzn_type_FileEvent *event = FileEvents_reserve();
-    if (event == 0) {
-        hzn_fn_bump_drop(2);
-        if (scope->class == 2) {
-            return HZN_LSM_ALLOW;
-        }
-        return HZN_LSM_DENY;
-    }
-    event->flags = hzn_lsm_file_flags(ctx);
-    event->mode = hzn_lsm_file_mode(ctx);
+    __u32 flags = hzn_lsm_file_flags(ctx);
+    __u32 mode = hzn_lsm_file_mode(ctx);
     __u64 file_dev = hzn_lsm_file_dev(ctx);
     __u64 file_ino = hzn_lsm_file_ino(ctx);
     __u64 parent_ino = hzn_lsm_file_parent_ino(ctx);
     __u32 verdict = (__u32)(0);
-    if (hzn_lsm_file_path(ctx, &event->path, sizeof(event->path)) < 0) {
-        event->path_trunc = 1;
-    }
     bool proc_other = hzn_lsm_file_is_proc_other(ctx);
     struct hzn_type_FileRule *direct_rule = FileRules_lookup((struct hzn_type_FileKey){ .cgroup_id = cgroup_id, .dev = file_dev, .ino = file_ino });
     struct hzn_type_FileRule *parent_rule = FileRules_lookup((struct hzn_type_FileKey){ .cgroup_id = cgroup_id, .dev = file_dev, .ino = parent_ino });
     if (proc_other) {
         verdict = 1;
     }
-    __u32 writing = event->flags & (((((__u32)0x2) | ((__u32)0100)) | ((__u32)01000)) | ((__u32)02000));
+    __u32 writing = flags & (((((__u32)0x2) | ((__u32)0100)) | ((__u32)01000)) | ((__u32)02000));
     if (direct_rule != 0) {
         if (direct_rule->verdict == 1) {
             verdict = 1;
@@ -634,6 +676,25 @@ int GateFileOpen(void *ctx) {
     __u8 *file_grant = ActionGrant_lookup((struct hzn_type_ActionKey){ .cgroup_id = cgroup_id, .pid = hzn_current_pid(), .kind = 2 });
     if ((verdict == 2) && (file_grant != 0)) {
         verdict = 3;
+    }
+    if ((verdict == 0) && ((hzn_ktime_get_ns() & (__u64)(63)) != 0)) {
+        return HZN_LSM_ALLOW;
+    }
+    struct hzn_type_FileEvent *event = FileEvents_reserve();
+    if (event == 0) {
+        hzn_fn_bump_drop(2);
+        if ((verdict == 1) || (verdict == 2)) {
+            return HZN_LSM_DENY;
+        }
+        if (scope->class == 2) {
+            return HZN_LSM_ALLOW;
+        }
+        return HZN_LSM_DENY;
+    }
+    event->flags = flags;
+    event->mode = mode;
+    if (hzn_lsm_file_path(ctx, &event->path, sizeof(event->path)) < 0) {
+        event->path_trunc = 1;
     }
     event->hdr.ts_ns = hzn_ktime_get_ns();
     event->hdr.cell_lo = scope->cell_lo;
