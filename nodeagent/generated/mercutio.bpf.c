@@ -548,6 +548,7 @@ int OnExec(struct trace_event_raw_sched_process_exec *ctx) {
     event->hdr.uid = hzn_current_uid();
     event->hdr.kind = 1;
     event->hdr.verdict = 0;
+    event->pad = 0;
     hzn_current_comm(&event->hdr.comm, sizeof(event->hdr.comm));
     __s64 argv_len = hzn_current_argv(&event->argv_head, sizeof(event->argv_head));
     if ((argv_len < 0) || (argv_len >= 256)) {
@@ -659,8 +660,9 @@ int GateExec(void *ctx) {
     event->hdr.ppid = hzn_current_ppid();
     event->hdr.tgid = event->hdr.pid;
     event->hdr.uid = hzn_current_uid();
-    event->hdr.kind = 4;
+    event->hdr.kind = 1;
     event->hdr.verdict = verdict;
+    event->pad = 1;
     hzn_current_comm(&event->hdr.comm, sizeof(event->hdr.comm));
     ExecEvents_submit(event);
     if ((verdict == 1) || (verdict == 2)) {

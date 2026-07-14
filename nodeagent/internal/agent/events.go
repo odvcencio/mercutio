@@ -32,7 +32,7 @@ func (m *ProgramManager) readExecEvents(programs *classPrograms) {
 		event.Path = nulString(raw.Filename[:])
 		event.Argv = argvString(raw.ArgvHead[:])
 		event.ArgvTruncated = raw.ArgvTrunc != 0
-		event.Program, event.ProgramDanger = execProgramMetadata(raw.Hdr.Kind)
+		event.Program, event.ProgramDanger = execProgramMetadata(raw.Pad)
 		event.ActionDanger = danger("mutate", "process", "restart")
 		m.options.Queue.Enqueue(event)
 		return nil
@@ -42,8 +42,8 @@ func (m *ProgramManager) readExecEvents(programs *classPrograms) {
 	}
 }
 
-func execProgramMetadata(kind uint32) (string, map[string]string) {
-	if kind == 4 {
+func execProgramMetadata(source uint32) (string, map[string]string) {
+	if source == 1 {
 		return "GateExec", danger("control", "process", "restart")
 	}
 	return "OnExec", danger("observe", "event", "none")

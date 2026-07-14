@@ -197,6 +197,7 @@ func OnExec(ctx tracepoint.Exec) i32 {
     event.hdr.uid = bpf.current_uid()
     event.hdr.kind = 1
     event.hdr.verdict = 0
+	event.pad = 0
     bpf.current_comm(&event.hdr.comm)
     argv_len := bpf.current_argv(&event.argv_head)
     if argv_len < 0 || argv_len >= 256 {
@@ -296,8 +297,9 @@ func GateExec(ctx lsm.Context) i32 {
     event.hdr.ppid = bpf.current_ppid()
     event.hdr.tgid = event.hdr.pid
     event.hdr.uid = bpf.current_uid()
-    event.hdr.kind = 4
+    event.hdr.kind = 1
     event.hdr.verdict = verdict
+	event.pad = 1
     bpf.current_comm(&event.hdr.comm)
     ExecEvents.submit(event)
     if verdict == 1 || verdict == 2 {

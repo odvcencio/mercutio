@@ -60,7 +60,7 @@ func TestOpenEventMetadataNamesObserveProgramsWithoutControlDanger(t *testing.T)
 }
 
 func TestContainedEventMetadataNamesControlPrograms(t *testing.T) {
-	execName, execDanger := execProgramMetadata(4)
+	execName, execDanger := execProgramMetadata(1)
 	if execName != "GateExec" || execDanger["mode"] != "control" || execDanger["scope"] != "process" || execDanger["reversibility"] != "restart" {
 		t.Fatalf("gate exec metadata = %s %+v", execName, execDanger)
 	}
@@ -77,11 +77,11 @@ func TestContainedEventMetadataNamesControlPrograms(t *testing.T) {
 }
 
 func TestExecMetadataDoesNotDependOnRecordedPath(t *testing.T) {
-	name, programDanger := execProgramMetadata(4)
+	name, programDanger := execProgramMetadata(1)
 	if name != "GateExec" || programDanger["mode"] != "control" {
 		t.Fatalf("gate event with an unreadable path would be mislabeled: %s %+v", name, programDanger)
 	}
-	name, programDanger = execProgramMetadata(1)
+	name, programDanger = execProgramMetadata(0)
 	if name != "OnExec" || programDanger["mode"] != "observe" {
 		t.Fatalf("tracepoint event metadata = %s %+v", name, programDanger)
 	}
