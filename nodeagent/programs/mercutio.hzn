@@ -9,6 +9,8 @@ type CellScopeVal struct {
     cell_hi u64
     class u32
     fs_dev u64
+	scratch_dev u64
+	runtime_dev u64
 }
 
 type NetKey struct {
@@ -89,6 +91,16 @@ type ExecRule struct {
     verdict u32
 }
 
+type FileKey struct {
+    cgroup_id u64
+    dev u64
+    ino u64
+}
+
+type FileRule struct {
+    verdict u32
+}
+
 @max_entries(4096)
 map CellScope hash[u64, CellScopeVal]
 
@@ -106,6 +118,9 @@ map ActionGrant hash[ActionKey, u8]
 
 @max_entries(32768)
 map ExecRules hash[ExecKey, ExecRule]
+
+@max_entries(65536)
+map FileRules hash[FileKey, FileRule]
 
 @max_entries(EventBytes)
 map ExecEvents ringbuf[ExecEvent]
@@ -255,28 +270,36 @@ func GateFileOpen(ctx lsm.Context) i32 {
     event.flags = lsm.file_flags(ctx)
     event.mode = lsm.file_mode(ctx)
     file_dev := lsm.file_dev(ctx)
+    file_ino := lsm.file_ino(ctx)
+    parent_ino := lsm.file_parent_ino(ctx)
     verdict := u32(0)
-    path_valid := true
     if lsm.file_path(ctx, &event.path) < 0 {
-        path_valid = false
         event.path_trunc = 1
-        if scope.class != 2 {
-            verdict = 1
-        }
     }
     proc_other := lsm.file_is_proc_other(ctx)
-    if proc_other || path_valid && (lsm.path_has_prefix(&event.path, "/root/.ssh/") || lsm.path_has_prefix(&event.path, "/root/.aws/") || lsm.path_has_prefix(&event.path, "/root/.kube/") || lsm.path_has_prefix(&event.path, "/root/.docker/") || lsm.path_has_prefix(&event.path, "/home/agent/.ssh/") || lsm.path_has_prefix(&event.path, "/home/agent/.aws/") || lsm.path_has_prefix(&event.path, "/home/agent/.kube/") || lsm.path_has_prefix(&event.path, "/home/agent/.docker/") || lsm.path_has_prefix(&event.path, "/home/nonroot/.ssh/") || lsm.path_has_prefix(&event.path, "/home/nonroot/.aws/") || lsm.path_has_prefix(&event.path, "/home/nonroot/.kube/") || lsm.path_has_prefix(&event.path, "/home/nonroot/.docker/") || lsm.path_has_prefix(&event.path, "/var/run/secrets/") || lsm.path_has_prefix(&event.path, "/proc/") && lsm.path_has_suffix(&event.path, "/environ")) {
+    direct_rule := FileRules.lookup(FileKey{cgroup_id: cgroup_id, dev: file_dev, ino: file_ino})
+    parent_rule := FileRules.lookup(FileKey{cgroup_id: cgroup_id, dev: file_dev, ino: parent_ino})
+    if proc_other {
         verdict = 1
     }
     writing := event.flags & (lsm.FModeWrite | lsm.OCreat | lsm.OTrunc | lsm.OAppend)
-    if path_valid && writing != 0 && !lsm.path_has_prefix(&event.path, "/workspace/") && !lsm.path_has_prefix(&event.path, "/tmp/") && !lsm.path_has_prefix(&event.path, "/run/mercutio/") {
+	if direct_rule != nil {
+		if direct_rule.verdict == 1 {
+			verdict = 1
+		} else if direct_rule.verdict == 2 && writing != 0 && verdict == 0 {
+			verdict = 2
+		}
+	}
+	if parent_rule != nil {
+		if parent_rule.verdict == 1 {
+			verdict = 1
+		} else if parent_rule.verdict == 2 && writing != 0 && verdict == 0 {
+			verdict = 2
+		}
+	}
+	writable_dev := file_dev == scope.fs_dev || file_dev == scope.scratch_dev || file_dev == scope.runtime_dev
+    if writing != 0 && !writable_dev {
         verdict = 1
-    }
-    if path_valid && scope.class != 2 && writing != 0 && lsm.path_has_prefix(&event.path, "/workspace/") && file_dev != scope.fs_dev {
-        verdict = 1
-    }
-    if path_valid && writing != 0 && (lsm.path_has_prefix(&event.path, "/workspace/repo/.github/") || lsm.path_has_prefix(&event.path, "/workspace/repo/.git/") || lsm.path_has_prefix(&event.path, "/workspace/repo/.graft/") || lsm.path_has_prefix(&event.path, "/workspace/repo/Makefile")) {
-        verdict = 2
     }
     file_grant := ActionGrant.lookup(ActionKey{cgroup_id: cgroup_id, pid: bpf.current_pid(), kind: 2})
     if verdict == 2 && file_grant != nil {

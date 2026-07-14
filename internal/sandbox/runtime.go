@@ -70,8 +70,14 @@ type Runtime interface {
 	Delete(context.Context, string) error
 }
 
-type WorkspaceDeviceRecorder interface {
-	RecordWorkspaceDevice(context.Context, string, uint64) error
+type MountDevices struct {
+	Workspace uint64 `json:"workspace"`
+	Scratch   uint64 `json:"scratch"`
+	Runtime   uint64 `json:"runtime"`
+}
+
+type MountDeviceRecorder interface {
+	RecordMountDevices(context.Context, string, MountDevices) error
 }
 
 // PolicyFinalizer promotes network enforcement only after the Node Agent has
@@ -165,7 +171,7 @@ func (r *MemoryRuntime) Delete(_ context.Context, cellID string) error {
 	return nil
 }
 
-func (r *MemoryRuntime) RecordWorkspaceDevice(_ context.Context, _ string, _ uint64) error {
+func (r *MemoryRuntime) RecordMountDevices(_ context.Context, _ string, _ MountDevices) error {
 	return nil
 }
 
@@ -461,7 +467,7 @@ func (r *KubernetesRuntime) Delete(ctx context.Context, cellID string) error {
 	return nil
 }
 
-func (r *KubernetesRuntime) RecordWorkspaceDevice(ctx context.Context, cellID string, device uint64) error {
+func (r *KubernetesRuntime) RecordMountDevices(ctx context.Context, cellID string, devices MountDevices) error {
 	for _, namespace := range r.cellNamespaces() {
 		pods, err := r.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: "mercutio.dev/cell-id=" + cellID})
 		if err != nil {
@@ -474,7 +480,9 @@ func (r *KubernetesRuntime) RecordWorkspaceDevice(ctx context.Context, cellID st
 		if pod.Annotations == nil {
 			pod.Annotations = map[string]string{}
 		}
-		pod.Annotations["mercutio.dev/workspace-device"] = fmt.Sprint(device)
+		pod.Annotations["mercutio.dev/workspace-device"] = fmt.Sprint(devices.Workspace)
+		pod.Annotations["mercutio.dev/scratch-device"] = fmt.Sprint(devices.Scratch)
+		pod.Annotations["mercutio.dev/runtime-device"] = fmt.Sprint(devices.Runtime)
 		_, err = r.client.CoreV1().Pods(namespace).Update(ctx, pod, metav1.UpdateOptions{})
 		return err
 	}

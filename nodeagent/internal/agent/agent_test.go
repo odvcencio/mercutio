@@ -26,9 +26,33 @@ func (f *fakeLoader) Disarm(_ context.Context, id string) error {
 }
 func (f *fakeLoader) Close() error { return nil }
 
+type refreshingLoader struct{ fakeLoader }
+
+func (f *refreshingLoader) RefreshRules(_ context.Context, id string) error {
+	f.calls = append(f.calls, "refresh:"+id)
+	return f.err
+}
+
 type fakeControl struct {
 	calls *[]string
 	err   error
+}
+
+func TestReconcileRefreshesRulesForUnchangedCell(t *testing.T) {
+	source := &fakeSource{cells: []Cell{{ID: "cell-1", CgroupID: 7, Profile: "standard"}}}
+	loader := &refreshingLoader{}
+	controlCalls := []string{}
+	agent := &Agent{Source: source, Loader: loader, Control: fakeControl{calls: &controlCalls}}
+	if err := agent.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	loader.calls = nil
+	if err := agent.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(loader.calls, []string{"refresh:cell-1"}) {
+		t.Fatalf("refresh calls = %v", loader.calls)
+	}
 }
 
 func (f fakeControl) Armed(_ context.Context, cell Cell, _ ArmResult) error {

@@ -490,7 +490,7 @@ data:
               mountPath: /tmp
         - name: report-workspace-device
           image: example.invalid/mercutio@sha256:1111111111111111111111111111111111111111111111111111111111111111
-          args: ["workspace-probe", "--cell", "{{CELL_ID}}", "--control", "http://mercutio-mercutio.default.svc:9011", "--workspace", "/workspace/repo"]
+          args: ["workspace-probe", "--cell", "{{CELL_ID}}", "--control", "http://mercutio-mercutio.default.svc:9011", "--workspace", "/workspace/repo", "--scratch", "/tmp", "--runtime", "/run/mercutio"]
           securityContext: *restricted
           env:
             - name: MERCUTIO_ARM_TOKEN
@@ -503,6 +503,8 @@ data:
               mountPath: /workspace
             - name: scratch
               mountPath: /tmp
+            - name: runtime
+              mountPath: /run/mercutio
         - name: armgate
           image: example.invalid/mercutio@sha256:1111111111111111111111111111111111111111111111111111111111111111
           args: ["armgate", "--cell", "{{CELL_ID}}", "--control", "http://mercutio-mercutio.default.svc:9011", "--output", "/run/mercutio/armed"]

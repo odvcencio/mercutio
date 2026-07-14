@@ -1812,15 +1812,15 @@ func (s *Store) VerifyArmToken(id, token string) bool {
 	return err == nil && claims.Role == "armgate"
 }
 
-func (s *Store) RecordWorkspaceDevice(ctx context.Context, id, token string, device uint64) error {
-	if device == 0 || !s.VerifyArmToken(id, token) {
-		return fmt.Errorf("invalid workspace device report")
+func (s *Store) RecordMountDevices(ctx context.Context, id, token string, devices sandbox.MountDevices) error {
+	if devices.Workspace == 0 || devices.Scratch == 0 || devices.Runtime == 0 || !s.VerifyArmToken(id, token) {
+		return fmt.Errorf("invalid writable mount device report")
 	}
-	recorder, ok := s.runtime.(sandbox.WorkspaceDeviceRecorder)
+	recorder, ok := s.runtime.(sandbox.MountDeviceRecorder)
 	if !ok {
-		return fmt.Errorf("sandbox runtime cannot record workspace devices")
+		return fmt.Errorf("sandbox runtime cannot record writable mount devices")
 	}
-	return recorder.RecordWorkspaceDevice(ctx, id, device)
+	return recorder.RecordMountDevices(ctx, id, devices)
 }
 
 func (s *Store) File(id, path string) (model.File, error) {

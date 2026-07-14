@@ -62,6 +62,7 @@ type loadedCell struct {
 	links    []link.Link
 	netKeys  []bindings.NetKey
 	net6Keys []bindings.Net6Key
+	fileKeys []bindings.FileKey
 }
 
 func NewProgramManager(options ProgramOptions) (*ProgramManager, error) {
@@ -139,13 +140,13 @@ func (m *ProgramManager) Arm(ctx context.Context, cell Cell) (ArmResult, error) 
 	if len(programs) == 0 {
 		programs = []string{"OnExec", "GateExec", "GateFileOpen", "GateConnect4", "GateConnect6"}
 	}
-	if existing := m.cells[cell.ID]; existing != nil && slices.Equal(cellCgroupIDs(existing.cell), cellCgroupIDs(cell)) && existing.cell.WorktreeDev == cell.WorktreeDev && existing.cell.Profile == cell.Profile && existing.cell.ProfileDigest == cell.ProfileDigest && programSetEqual(existing.cell.Programs, programs) {
+	if existing := m.cells[cell.ID]; existing != nil && slices.Equal(cellCgroupIDs(existing.cell), cellCgroupIDs(cell)) && existing.cell.WorktreeDev == cell.WorktreeDev && existing.cell.ScratchDev == cell.ScratchDev && existing.cell.RuntimeDev == cell.RuntimeDev && existing.cell.Profile == cell.Profile && existing.cell.ProfileDigest == cell.ProfileDigest && programSetEqual(existing.cell.Programs, programs) {
 		return m.armResult(cell.Profile, programs), nil
 	}
 	existing := m.cells[cell.ID]
 	cgroupIDs := cellCgroupIDs(cell)
-	if len(cgroupIDs) == 0 || cell.CgroupPath == "" || cell.WorktreeDev == 0 {
-		return ArmResult{}, fmt.Errorf("cell %s has no resolved cgroup and worktree device", cell.ID)
+	if len(cgroupIDs) == 0 || cell.CgroupPath == "" || cell.WorktreeDev == 0 || cell.ScratchDev == 0 || cell.RuntimeDev == 0 {
+		return ArmResult{}, fmt.Errorf("cell %s has no resolved cgroup and writable mount devices", cell.ID)
 	}
 	lo, hi := cellIdentity(cell.ID)
 	class, err := profileClass(cell.Profile)
@@ -161,12 +162,26 @@ func (m *ProgramManager) Arm(ctx context.Context, cell Cell) (ArmResult, error) 
 	}
 	cell.Programs = append([]string(nil), programs...)
 	for _, cgroupID := range cgroupIDs {
-		if err := programsForClass.objects.UpdateCellScope(cgroupID, bindings.CellScopeVal{CellLo: lo, CellHi: hi, Class: class, FsDev: cell.WorktreeDev}); err != nil {
+		if err := programsForClass.objects.UpdateCellScope(cgroupID, cellScopeValue(cell, lo, hi, class)); err != nil {
 			m.rollbackArm(&loadedCell{cell: cell, programs: programsForClass}, existing)
 			return ArmResult{}, fmt.Errorf("populate CellScope: %w", err)
 		}
 	}
 	loaded := &loadedCell{cell: cell, programs: programsForClass}
+	if hasProgram(programs, "GateFileOpen") {
+		fileRules, err := m.collectFileRules(cell, class)
+		if err != nil {
+			m.rollbackArm(loaded, existing)
+			return ArmResult{}, err
+		}
+		for key, verdict := range fileRules {
+			if err := programsForClass.objects.UpdateFileRules(key, bindings.FileRule{Verdict: verdict}); err != nil {
+				m.rollbackArm(loaded, existing)
+				return ArmResult{}, fmt.Errorf("populate FileRules: %w", err)
+			}
+			loaded.fileKeys = append(loaded.fileKeys, key)
+		}
+	}
 	if hasProgram(programs, "GateExec") && !programsForClass.execLSM {
 		execLink, err := programsForClass.objects.AttachGateExec()
 		if err != nil {
@@ -284,6 +299,9 @@ func (m *ProgramManager) disarmLoaded(loaded *loadedCell) {
 	for _, key := range loaded.net6Keys {
 		_ = loaded.programs.objects.DeleteNet6Allow(key)
 	}
+	for _, key := range loaded.fileKeys {
+		_ = loaded.programs.objects.DeleteFileRules(key)
+	}
 }
 
 // rollbackArm removes only resources introduced by the attempted arm. When a
@@ -304,6 +322,11 @@ func (m *ProgramManager) rollbackArm(attempt, previous *loadedCell) {
 			_ = attempt.programs.objects.DeleteNet6Allow(key)
 		}
 	}
+	for _, key := range attempt.fileKeys {
+		if !sameCollection || !slices.Contains(previous.fileKeys, key) {
+			_ = attempt.programs.objects.DeleteFileRules(key)
+		}
+	}
 	deleteCellScopes(attempt.programs.objects, cellCgroupIDs(attempt.cell))
 	if sameCollection {
 		m.restoreCellScopes(previous)
@@ -317,8 +340,12 @@ func (m *ProgramManager) restoreCellScopes(loaded *loadedCell) {
 	}
 	lo, hi := cellIdentity(loaded.cell.ID)
 	for _, cgroupID := range cellCgroupIDs(loaded.cell) {
-		_ = loaded.programs.objects.UpdateCellScope(cgroupID, bindings.CellScopeVal{CellLo: lo, CellHi: hi, Class: class, FsDev: loaded.cell.WorktreeDev})
+		_ = loaded.programs.objects.UpdateCellScope(cgroupID, cellScopeValue(loaded.cell, lo, hi, class))
 	}
+}
+
+func cellScopeValue(cell Cell, lo, hi uint64, class uint32) bindings.CellScopeVal {
+	return bindings.CellScopeVal{CellLo: lo, CellHi: hi, Class: class, FsDev: cell.WorktreeDev, ScratchDev: cell.ScratchDev, RuntimeDev: cell.RuntimeDev}
 }
 
 // retireLoaded runs only after the replacement is fully installed and visible
@@ -336,6 +363,11 @@ func (m *ProgramManager) retireLoaded(previous, replacement *loadedCell) {
 	for _, key := range previous.net6Keys {
 		if !sameCollection || !slices.Contains(replacement.net6Keys, key) {
 			_ = previous.programs.objects.DeleteNet6Allow(key)
+		}
+	}
+	for _, key := range previous.fileKeys {
+		if !sameCollection || !slices.Contains(replacement.fileKeys, key) {
+			_ = previous.programs.objects.DeleteFileRules(key)
 		}
 	}
 	for _, cgroupID := range cellCgroupIDs(previous.cell) {

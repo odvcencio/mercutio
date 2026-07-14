@@ -426,6 +426,7 @@
       "maps": {
         "read": [
           "CellScope",
+          "FileRules",
           "ActionGrant"
         ],
         "write": [],
@@ -562,6 +563,12 @@
           ]
         },
         {
+          "name": "lsm.file_ino",
+          "observes": [
+            "kernel.file.inode"
+          ]
+        },
+        {
           "name": "lsm.file_is_proc_other",
           "observes": [
             "kernel.proc.target_pid",
@@ -581,16 +588,16 @@
           ]
         },
         {
+          "name": "lsm.file_parent_ino",
+          "observes": [
+            "kernel.file.parent_inode"
+          ]
+        },
+        {
           "name": "lsm.file_path",
           "observes": [
             "kernel.file.path"
           ]
-        },
-        {
-          "name": "lsm.path_has_prefix"
-        },
-        {
-          "name": "lsm.path_has_suffix"
         },
         {
           "name": "map.lookup",
@@ -1063,6 +1070,13 @@
       "max_entries": "32768"
     },
     {
+      "name": "FileRules",
+      "kind": "hash",
+      "key": "FileKey",
+      "value": "FileRule",
+      "max_entries": "65536"
+    },
+    {
       "name": "ExecEvents",
       "kind": "ringbuf",
       "value": "ExecEvent",
@@ -1085,7 +1099,7 @@
     {
       "name": "CellScopeVal",
       "kind": "struct",
-      "size": 32,
+      "size": 48,
       "align": 8,
       "fields": [
         {
@@ -1107,6 +1121,16 @@
           "name": "fs_dev",
           "type": "u64",
           "offset": 24
+        },
+        {
+          "name": "scratch_dev",
+          "type": "u64",
+          "offset": 32
+        },
+        {
+          "name": "runtime_dev",
+          "type": "u64",
+          "offset": 40
         }
       ]
     },
@@ -1419,6 +1443,42 @@
     },
     {
       "name": "ExecRule",
+      "kind": "struct",
+      "size": 4,
+      "align": 4,
+      "fields": [
+        {
+          "name": "verdict",
+          "type": "u32",
+          "offset": 0
+        }
+      ]
+    },
+    {
+      "name": "FileKey",
+      "kind": "struct",
+      "size": 24,
+      "align": 8,
+      "fields": [
+        {
+          "name": "cgroup_id",
+          "type": "u64",
+          "offset": 0
+        },
+        {
+          "name": "dev",
+          "type": "u64",
+          "offset": 8
+        },
+        {
+          "name": "ino",
+          "type": "u64",
+          "offset": 16
+        }
+      ]
+    },
+    {
+      "name": "FileRule",
       "kind": "struct",
       "size": 4,
       "align": 4,

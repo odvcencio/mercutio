@@ -17,6 +17,8 @@ type Cell struct {
 	CgroupID      uint64
 	CgroupIDs     []uint64
 	WorktreeDev   uint64
+	ScratchDev    uint64
+	RuntimeDev    uint64
 	AllowedEgress []string
 	Programs      []string
 	ProfileDigest string
@@ -93,6 +95,10 @@ type Loader interface {
 	Arm(context.Context, Cell) (ArmResult, error)
 	Disarm(context.Context, string) error
 	Close() error
+}
+
+type RuleRefresher interface {
+	RefreshRules(context.Context, string) error
 }
 
 type Control interface {

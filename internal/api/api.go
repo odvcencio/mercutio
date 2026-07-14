@@ -14,6 +14,7 @@ import (
 	"m31labs.dev/mercutio/internal/cell"
 	"m31labs.dev/mercutio/internal/intelligence"
 	"m31labs.dev/mercutio/internal/model"
+	"m31labs.dev/mercutio/internal/sandbox"
 	"m31labs.dev/mercutio/internal/shadow"
 	"m31labs.dev/mercutio/internal/transport"
 )
@@ -359,14 +360,12 @@ func (h *Handler) WorkspaceDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
-	var input struct {
-		Device uint64 `json:"device"`
-	}
+	var input sandbox.MountDevices
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		errorJSON(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := h.store.RecordWorkspaceDevice(r.Context(), id, r.Header.Get("X-Mercutio-Arm-Token"), input.Device); err != nil {
+	if err := h.store.RecordMountDevices(r.Context(), id, r.Header.Get("X-Mercutio-Arm-Token"), input); err != nil {
 		errorJSON(w, http.StatusForbidden, err)
 		return
 	}

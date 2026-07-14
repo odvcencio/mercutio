@@ -16,16 +16,18 @@ func runWorkspaceProbe(args []string) {
 	cellID := flags.String("cell", os.Getenv("MERCUTIO_CELL_ID"), "cell ID")
 	control := flags.String("control", os.Getenv("MERCUTIO_CONTROL_URL"), "control-plane URL")
 	workspace := flags.String("workspace", "/workspace/repo", "worktree path")
+	scratch := flags.String("scratch", "/tmp", "scratch path")
+	runtime := flags.String("runtime", "/run/mercutio", "runtime IPC path")
 	flags.Parse(args)
-	info, err := os.Stat(*workspace)
-	if err != nil {
-		fatalProbe(err)
+	devices := map[string]uint64{}
+	for name, path := range map[string]string{"workspace": *workspace, "scratch": *scratch, "runtime": *runtime} {
+		device, err := mountDevice(path)
+		if err != nil {
+			fatalProbe(fmt.Errorf("%s device: %w", name, err))
+		}
+		devices[name] = device
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || stat.Dev == 0 {
-		fatalProbe(fmt.Errorf("workspace device unavailable"))
-	}
-	body, _ := json.Marshal(map[string]uint64{"device": uint64(stat.Dev)})
+	body, _ := json.Marshal(devices)
 	request, err := http.NewRequest(http.MethodPost, strings.TrimRight(*control, "/")+"/api/internal/cells/"+*cellID+"/workspace-device", bytes.NewReader(body))
 	if err != nil {
 		fatalProbe(err)
@@ -40,6 +42,18 @@ func runWorkspaceProbe(args []string) {
 	if response.StatusCode != http.StatusNoContent {
 		fatalProbe(fmt.Errorf("workspace report returned %s", response.Status))
 	}
+}
+
+func mountDevice(path string) (uint64, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Dev == 0 {
+		return 0, fmt.Errorf("device unavailable")
+	}
+	return uint64(stat.Dev), nil
 }
 
 func fatalProbe(err error) {

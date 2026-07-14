@@ -61,6 +61,11 @@ func (a *Agent) Reconcile(ctx context.Context) error {
 		seen[cell.ID] = struct{}{}
 		fingerprint := cellFingerprint(cell)
 		if a.armed[cell.ID] == fingerprint {
+			if refresher, ok := a.Loader.(RuleRefresher); ok {
+				if refreshErr := refresher.RefreshRules(ctx, cell.ID); refreshErr != nil {
+					failures = append(failures, fmt.Errorf("refresh cell %s rules: %w", cell.ID, refreshErr))
+				}
+			}
 			continue
 		}
 		result, armErr := a.Loader.Arm(ctx, cell)
@@ -95,5 +100,5 @@ func cellFingerprint(cell Cell) string {
 	slices.Sort(programs)
 	cgroups := append([]uint64(nil), cell.CgroupIDs...)
 	slices.Sort(cgroups)
-	return fmt.Sprintf("%v\x00%d\x00%s\x00%s\x00%s\x00%s", cgroups, cell.WorktreeDev, strings.TrimSpace(cell.Profile), cell.ProfileDigest, strings.Join(programs, "\x00"), strings.Join(egress, "\x00"))
+	return fmt.Sprintf("%v\x00%d\x00%d\x00%d\x00%s\x00%s\x00%s\x00%s", cgroups, cell.WorktreeDev, cell.ScratchDev, cell.RuntimeDev, strings.TrimSpace(cell.Profile), cell.ProfileDigest, strings.Join(programs, "\x00"), strings.Join(egress, "\x00"))
 }

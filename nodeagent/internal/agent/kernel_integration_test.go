@@ -41,7 +41,7 @@ func TestKernelLoadsAttachesAndEnforcesStrictExec(t *testing.T) {
 	workspace := t.TempDir()
 	workspaceInfo, _ := os.Stat(workspace)
 	device := uint64(workspaceInfo.Sys().(*syscall.Stat_t).Dev)
-	if _, err := manager.Arm(context.Background(), Cell{ID: "kernel-test", Profile: "strict", CgroupPath: cgroup, CgroupID: cgroupID, CgroupIDs: []uint64{cgroupID}, WorktreeDev: device}); err != nil {
+	if _, err := manager.Arm(context.Background(), Cell{ID: "kernel-test", Profile: "strict", CgroupPath: cgroup, CgroupID: cgroupID, CgroupIDs: []uint64{cgroupID}, WorktreeDev: device, ScratchDev: device, RuntimeDev: device}); err != nil {
 		t.Fatalf("arm strict cgroup: %v", err)
 	}
 	copyPath := filepath.Join(workspace, "copied-true")

@@ -167,8 +167,8 @@ k8s.io/utils v0.0.0-20230726121419-3b25d923346b h1:sgn3ZU783SCgtaSJjpcVVlRqd6GSn
 k8s.io/utils v0.0.0-20230726121419-3b25d923346b/go.mod h1:OLgZIPagt7ERELqWJFomSt595RzquPNLL48iOWgYOg0=
 m31labs.dev/continuum v0.0.0-20260713211228-a1a913208f0c h1:uVS7fY/HBBWiuMs3vYVFnyMcE+VVZkfYRWkoWG49La8=
 m31labs.dev/continuum v0.0.0-20260713211228-a1a913208f0c/go.mod h1:gzlWJ7Zx5Z4CYj3kYbbXPD5BKDH39gUbpxNFNIGz2C4=
-m31labs.dev/horizon v0.4.1-0.20260714003714-a54434af0b32 h1:TWonmWwFTbq7UZOpJWJuFqui2M9Iviquq3MgeZvEG3s=
-m31labs.dev/horizon v0.4.1-0.20260714003714-a54434af0b32/go.mod h1:OU3kizRo16gTDgUMG61HkXTZI39ankCbwheQQXtxyhc=
+m31labs.dev/horizon v0.4.1-0.20260714004857-9c66a7f52b54 h1:e/1Jmeqq/qMhav+JQytr7CqOvwYokuk/ugjmdxClARc=
+m31labs.dev/horizon v0.4.1-0.20260714004857-9c66a7f52b54/go.mod h1:OU3kizRo16gTDgUMG61HkXTZI39ankCbwheQQXtxyhc=
 sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd h1:EDPBXCAspyGV4jQlpZSudPeMmr1bNJefnuqLsRAsHZo=
 sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd/go.mod h1:B8JuhiUyNFVKdsE8h686QcCxMaH6HrOAZj4vswFpcB0=
 sigs.k8s.io/structured-merge-diff/v4 v4.4.1 h1:150L+0vs/8DA78h1u02ooW1/fFq/Lwr+sGiqlzvrtq4=

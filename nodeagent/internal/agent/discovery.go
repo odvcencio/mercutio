@@ -51,6 +51,14 @@ func (s KubernetesSource) ListCells(ctx context.Context) ([]Cell, error) {
 		if err != nil || worktreeDev == 0 {
 			continue
 		}
+		scratchDev, err := strconv.ParseUint(pod.Annotations["mercutio.dev/scratch-device"], 10, 64)
+		if err != nil || scratchDev == 0 {
+			continue
+		}
+		runtimeDev, err := strconv.ParseUint(pod.Annotations["mercutio.dev/runtime-device"], 10, 64)
+		if err != nil || runtimeDev == 0 {
+			continue
+		}
 		var policy struct {
 			Egress        []string `json:"egress"`
 			Programs      []string `json:"programs"`
@@ -60,7 +68,7 @@ func (s KubernetesSource) ListCells(ctx context.Context) ([]Cell, error) {
 		result = append(result, Cell{
 			ID: cellID, Namespace: pod.Namespace, PodName: pod.Name, PodUID: string(pod.UID),
 			Profile: defaultString(pod.Labels["mercutio.dev/profile"], "standard"), NodeID: s.NodeID,
-			CgroupPath: cgroupPath, CgroupID: cgroupIDs[0], CgroupIDs: cgroupIDs, WorktreeDev: worktreeDev, AllowedEgress: append([]string(nil), policy.Egress...), Programs: append([]string(nil), policy.Programs...), ProfileDigest: policy.ProfileDigest,
+			CgroupPath: cgroupPath, CgroupID: cgroupIDs[0], CgroupIDs: cgroupIDs, WorktreeDev: worktreeDev, ScratchDev: scratchDev, RuntimeDev: runtimeDev, AllowedEgress: append([]string(nil), policy.Egress...), Programs: append([]string(nil), policy.Programs...), ProfileDigest: policy.ProfileDigest,
 		})
 	}
 	return result, nil
