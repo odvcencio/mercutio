@@ -22,6 +22,8 @@ func New(store *cell.Store, hub *transport.CellHub) *action.Registry {
 	registry.Register("delete-file", requireCapability(store, "doc:write", deleteFile(store, hub)))
 	registry.Register("prompt", requireCapability(store, "prompt:write", prompt(store, hub)))
 	registry.Register("destroy-cell", requireCapability(store, "cell:control", destroyCell(store, hub)))
+	registry.Register("pause-cell", requireCapability(store, "cell:control", controlCell(store, hub, true)))
+	registry.Register("resume-cell", requireCapability(store, "cell:control", controlCell(store, hub, false)))
 	registry.Register("approve-review", requireCapability(store, "review:approve", approveReview(store, hub)))
 	registry.Register("preview-policy", requireCapability(store, "doc:write", previewPolicy(store, hub)))
 	registry.Register("apply-policy", requireCapability(store, "policy:apply", applyPolicy(store, hub)))
@@ -33,6 +35,32 @@ func New(store *cell.Store, hub *transport.CellHub) *action.Registry {
 	registry.Register("discard-shadow", requireCapability(store, "doc:write", shadowAction(store, hub, "discard")))
 	registry.Register("decide-action", requireCapability(store, "cell:control", decideAction(store, hub)))
 	return registry
+}
+
+func controlCell(store *cell.Store, hub *transport.CellHub, pause bool) action.Handler {
+	return func(ctx *action.Context) error {
+		cellID := strings.TrimSpace(ctx.FormData["cellID"])
+		event := "agent:resume"
+		if pause {
+			event = "agent:pause"
+		}
+		if !hub.ControlAgent(cellID, event) {
+			return action.Error(409, "attached agent does not accept execution control")
+		}
+		var snapshot model.CellSnapshot
+		var err error
+		if pause {
+			snapshot, err = store.Pause(cellID, "operator")
+		} else {
+			snapshot, err = store.Resume(cellID, "operator")
+		}
+		if err != nil {
+			return action.Error(409, err.Error())
+		}
+		hub.BroadcastCell(snapshot)
+		ctx.Redirect(viewPath(cellID, strings.TrimSpace(ctx.FormData["path"])))
+		return nil
+	}
 }
 
 func requireCapability(store *cell.Store, permission string, next action.Handler) action.Handler {

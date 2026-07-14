@@ -51,17 +51,32 @@ func runAgent(args []string, _ io.Reader, _ io.Writer, stderr io.Writer) int {
 	emit(map[string]any{"event": "status", "status": "attached", "adapter": *adapterName})
 	wait := make(chan error, 1)
 	go func() { wait <- adapter.Wait() }()
-	prompts := make(chan string)
-	go readAgentPrompts(connection, prompts)
+	commands := make(chan agentCommand)
+	go readAgentCommands(connection, commands)
 	for {
 		select {
-		case prompt, ok := <-prompts:
+		case command, ok := <-commands:
 			if !ok {
 				cancel()
 				return 1
 			}
-			if err := adapter.SendPrompt(ctx, prompt); err != nil {
-				emit(map[string]any{"event": "trace", "action": "agent.prompt.failed", "summary": "Prompt delivery failed"})
+			var commandErr error
+			switch command.Event {
+			case "prompt":
+				commandErr = adapter.SendPrompt(ctx, command.Prompt)
+			case "control:pause":
+				commandErr = adapter.Pause()
+				if commandErr == nil {
+					emit(map[string]any{"event": "status", "status": "paused"})
+				}
+			case "control:resume":
+				commandErr = adapter.Resume()
+				if commandErr == nil {
+					emit(map[string]any{"event": "status", "status": "working"})
+				}
+			}
+			if commandErr != nil {
+				emit(map[string]any{"event": "trace", "action": "agent.command.failed", "summary": "Agent command failed"})
 			}
 		case output, ok := <-adapter.Output():
 			if ok {
@@ -85,16 +100,21 @@ func runAgent(args []string, _ io.Reader, _ io.Writer, stderr io.Writer) int {
 	}
 }
 
-func readAgentPrompts(reader io.Reader, prompts chan<- string) {
-	defer close(prompts)
+type agentCommand struct {
+	Event  string `json:"event"`
+	Prompt string `json:"prompt"`
+}
+
+func readAgentCommands(reader io.Reader, commands chan<- agentCommand) {
+	defer close(commands)
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
-		var message struct {
-			Event  string `json:"event"`
-			Prompt string `json:"prompt"`
+		var message agentCommand
+		if json.Unmarshal(scanner.Bytes(), &message) != nil {
+			continue
 		}
-		if json.Unmarshal(scanner.Bytes(), &message) == nil && message.Event == "prompt" && strings.TrimSpace(message.Prompt) != "" {
-			prompts <- message.Prompt
+		if message.Event == "prompt" && strings.TrimSpace(message.Prompt) != "" || message.Event == "control:pause" || message.Event == "control:resume" {
+			commands <- message
 		}
 	}
 }

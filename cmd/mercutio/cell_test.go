@@ -45,7 +45,7 @@ func TestCellCLIExercisesLifecycleAPIWithBearerAuth(t *testing.T) {
 	for _, test := range []struct {
 		args []string
 		want string
-	}{{[]string{"create", "--repo", created.RepoURL, "--profile", "strict"}, "cell-001\tready\tstrict"}, {[]string{"list"}, "CELL"}, {[]string{"destroy", "cell-001"}, "cell-001\tstopped"}} {
+	}{{[]string{"create", "--repo", created.RepoURL, "--profile", "strict"}, "cell-001\tready\tstrict"}, {[]string{"list"}, "CELL"}, {[]string{"destroy", "cell-001"}, "cell-001\tterminated"}} {
 		var output, errors bytes.Buffer
 		if code := runCell(test.args, &output, &errors, server.Client()); code != 0 || !strings.Contains(output.String(), test.want) {
 			t.Fatalf("args=%v code=%d output=%q errors=%q", test.args, code, output.String(), errors.String())

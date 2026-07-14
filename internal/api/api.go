@@ -1027,6 +1027,36 @@ func (h *Handler) Destroy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, snapshot)
 }
 
+func (h *Handler) Control(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) != 4 || parts[0] != "api" || parts[1] != "cells" || (parts[3] != "pause" && parts[3] != "resume") {
+		errorJSON(w, http.StatusBadRequest, fmt.Errorf("invalid cell control path"))
+		return
+	}
+	cellID, operation := parts[2], parts[3]
+	if !h.requireOperatorCapability(w, r, cellID, "cell:control") {
+		return
+	}
+	event := "agent:" + operation
+	if !h.hub.ControlAgent(cellID, event) {
+		errorJSON(w, http.StatusConflict, fmt.Errorf("attached agent does not accept execution control"))
+		return
+	}
+	var snapshot model.CellSnapshot
+	var err error
+	if operation == "pause" {
+		snapshot, err = h.store.Pause(cellID, "operator")
+	} else {
+		snapshot, err = h.store.Resume(cellID, "operator")
+	}
+	if err != nil {
+		errorJSON(w, http.StatusConflict, err)
+		return
+	}
+	h.hub.BroadcastCell(snapshot)
+	writeJSON(w, http.StatusOK, snapshot)
+}
+
 func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) < 5 || parts[0] != "api" || parts[1] != "cells" || parts[3] != "reviews" {

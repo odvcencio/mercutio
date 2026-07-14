@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 )
 
 type agentOutput struct {
@@ -24,6 +25,8 @@ type agentTrace struct {
 
 type agentAdapter interface {
 	SendPrompt(context.Context, string) error
+	Pause() error
+	Resume() error
 	Output() <-chan agentOutput
 	Traces() <-chan agentTrace
 	Wait() error
@@ -90,6 +93,14 @@ func (a *processAdapter) SendPrompt(ctx context.Context, text string) error {
 
 func (a *processAdapter) Output() <-chan agentOutput { return a.output }
 func (a *processAdapter) Traces() <-chan agentTrace  { return a.traces }
+
+func (a *processAdapter) Pause() error {
+	return a.command.Process.Signal(syscall.SIGSTOP)
+}
+
+func (a *processAdapter) Resume() error {
+	return a.command.Process.Signal(syscall.SIGCONT)
+}
 
 func (a *processAdapter) Wait() error {
 	err := a.command.Wait()

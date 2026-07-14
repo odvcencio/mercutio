@@ -150,6 +150,10 @@ func runAttach(args []string) {
 				if json.Unmarshal(message.Data, &payload) == nil {
 					emit(map[string]any{"event": "prompt", "cellID": payload["cellID"], "prompt": payload["prompt"]})
 				}
+			case "agent:pause":
+				emit(map[string]any{"event": "control:pause"})
+			case "agent:resume":
+				emit(map[string]any{"event": "control:resume"})
 			case "agent:commit":
 				var payload attachCommitRequest
 				if json.Unmarshal(message.Data, &payload) != nil || payload.RequestID == "" {

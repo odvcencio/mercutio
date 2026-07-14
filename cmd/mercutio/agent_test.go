@@ -47,6 +47,15 @@ func TestHookAdaptersEmitAdditiveTrace(t *testing.T) {
 	}
 }
 
+func TestReadAgentCommandsIncludesExecutionControl(t *testing.T) {
+	commands := make(chan agentCommand)
+	go readAgentCommands(strings.NewReader("{\"event\":\"control:pause\"}\n{\"event\":\"control:resume\"}\n"), commands)
+	first, second := <-commands, <-commands
+	if first.Event != "control:pause" || second.Event != "control:resume" {
+		t.Fatalf("commands=%+v %+v", first, second)
+	}
+}
+
 func TestRunAgentRoutesPromptOutputAndIdleExit(t *testing.T) {
 	dir := t.TempDir()
 	socket := filepath.Join(dir, "attach.sock")
@@ -68,6 +77,15 @@ func TestRunAgentRoutesPromptOutputAndIdleExit(t *testing.T) {
 	var attached map[string]any
 	if err := decoder.Decode(&attached); err != nil || attached["status"] != "attached" {
 		t.Fatalf("attached=%v err=%v", attached, err)
+	}
+	for _, control := range []struct{ event, status string }{{"control:pause", "paused"}, {"control:resume", "working"}} {
+		if err := json.NewEncoder(connection).Encode(map[string]string{"event": control.event}); err != nil {
+			t.Fatal(err)
+		}
+		var status map[string]any
+		if err := decoder.Decode(&status); err != nil || status["event"] != "status" || status["status"] != control.status {
+			t.Fatalf("control=%s status=%v err=%v", control.event, status, err)
+		}
 	}
 	if err := json.NewEncoder(connection).Encode(map[string]string{"event": "prompt", "prompt": "tighten policy"}); err != nil {
 		t.Fatal(err)

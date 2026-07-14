@@ -610,6 +610,24 @@ func (h *CellHub) SendAgent(clientID, event string, value any) bool {
 	return true
 }
 
+func (h *CellHub) ControlAgent(cellID, event string) bool {
+	if event != "agent:pause" && event != "agent:resume" {
+		return false
+	}
+	clientID := h.AgentClient(cellID)
+	if clientID == "" {
+		return false
+	}
+	h.mu.RLock()
+	session, ok := h.agents[clientID]
+	h.mu.RUnlock()
+	if !ok || !session.Permissions["agent:control"] || session.ExpiresAt <= time.Now().UTC().Unix() {
+		return false
+	}
+	h.agentHub.Send(clientID, event, map[string]string{"cellID": cellID})
+	return true
+}
+
 func (h *CellHub) RegisterCell(id string) {
 	h.registerCell(id)
 	if snapshot, err := h.store.Snapshot(id); err == nil {

@@ -2,17 +2,32 @@ package model
 
 import "time"
 
-// CellStatus is intentionally small; the control plane owns lifecycle while
-// the sandbox runtime reports the underlying pod phase separately.
+// CellStatus is the durable control-plane lifecycle. Pod phase remains a
+// separate observation because provisioning/arming and review/commit states
+// cannot be inferred from Kubernetes phase alone.
 type CellStatus string
 
 const (
-	CellCreating CellStatus = "creating"
-	CellReady    CellStatus = "ready"
-	CellIdle     CellStatus = "idle"
-	CellSteering CellStatus = "steering"
-	CellStopped  CellStatus = "stopped"
-	CellError    CellStatus = "error"
+	CellRequested    CellStatus = "requested"
+	CellAdmitting    CellStatus = "admitting"
+	CellProvisioning CellStatus = "provisioning"
+	CellArming       CellStatus = "arming"
+	CellReady        CellStatus = "ready"
+	CellActive       CellStatus = "active"
+	CellPaused       CellStatus = "paused"
+	CellReviewing    CellStatus = "reviewing"
+	CellCommitting   CellStatus = "committing"
+	CellDraining     CellStatus = "draining"
+	CellTerminated   CellStatus = "terminated"
+	CellFailed       CellStatus = "failed"
+
+	// Compatibility names keep callers source-compatible while mapping every
+	// transition onto the normative lifecycle.
+	CellCreating = CellProvisioning
+	CellIdle     = CellReady
+	CellSteering = CellActive
+	CellStopped  = CellTerminated
+	CellError    = CellFailed
 )
 
 type EventKind string

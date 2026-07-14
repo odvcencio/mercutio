@@ -211,7 +211,7 @@ func (s *Store) newRecordLocked(id, repoURL, branch, profile string, files []mod
 			ID:             id,
 			RepoURL:        repoURL,
 			Branch:         branch,
-			Status:         model.CellCreating,
+			Status:         model.CellRequested,
 			SandboxProfile: profile,
 			Sandbox:        model.Sandbox{Phase: model.SandboxPending, LastTransition: created},
 			Capabilities:   capabilityManifest(manifest),
@@ -271,7 +271,11 @@ func (s *Store) Create(repoURL, branch, profile string) (model.CellSnapshot, err
 	now := time.Now().UTC()
 	files := []model.File{{Path: "README.md", Language: "markdown", Content: fmt.Sprintf("# %s\n\nCreated from `%s` on branch `%s`.\n", filepath.Base(repoURL), repoURL, defaultValue(branch, "main"))}}
 	r := s.newRecordLocked(id, repoURL, branch, profile, files, now)
-	s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: "operator", Action: "cell.create", Summary: "Sandbox cell requested", Detail: "The reconciler is materializing the graft worktree and agent pod.", Danger: "medium", Timestamp: now})
+	s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: "operator", Actor: "operator", Action: "cell.requested", Summary: "Sandbox cell requested", Detail: "repository, branch, and sandbox profile accepted for admission", Danger: "low", Authenticated: true, Timestamp: now})
+	r.cell.Status = model.CellAdmitting
+	s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: "control-plane", Action: "cell.admit", Summary: "Sandbox cell admitted", Detail: "quota, profile, and repository request accepted", Danger: "low", Timestamp: now})
+	r.cell.Status = model.CellProvisioning
+	s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: "control-plane", Action: "cell.provisioning", Summary: "Sandbox cell provisioning started", Detail: "The reconciler is materializing the graft worktree and agent pod.", Danger: "medium", Authenticated: true, Timestamp: now})
 	s.appendPolicyEventsLocked(r, now)
 	s.cells[id] = r
 	s.activeID = id
@@ -297,18 +301,23 @@ func (s *Store) Create(repoURL, branch, profile string) (model.CellSnapshot, err
 }
 
 func (s *Store) Destroy(id string) (model.CellSnapshot, error) {
-	s.mu.RLock()
+	s.mu.Lock()
 	r, ok := s.cells[id]
 	if !ok {
-		s.mu.RUnlock()
+		s.mu.Unlock()
 		return model.CellSnapshot{}, fmt.Errorf("cell %q not found", id)
 	}
 	if r.cell.Status == model.CellStopped {
 		snapshot := snapshotLocked(r)
-		s.mu.RUnlock()
+		s.mu.Unlock()
 		return snapshot, nil
 	}
-	s.mu.RUnlock()
+	now := time.Now().UTC()
+	r.cell.Status = model.CellDraining
+	r.cell.UpdatedAt = now
+	r.cell.Revision++
+	s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: "operator", Actor: "operator", Action: "cell.draining", Summary: "Sandbox cell draining", Detail: "runtime resources are being released after final evidence flush", Danger: "high", Authenticated: true, Timestamp: now})
+	s.mu.Unlock()
 	if err := s.runtime.Delete(context.Background(), id); err != nil {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -322,20 +331,20 @@ func (s *Store) Destroy(id string) (model.CellSnapshot, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := time.Now().UTC()
+	now = time.Now().UTC()
 	if err := s.secretBroker.DeleteCell(id); err != nil {
 		r.cell.Status = model.CellError
 		r.cell.Sandbox.Failure = "secret cleanup: " + secrets.RedactText(err.Error())
 		return snapshotLocked(r), fmt.Errorf("delete brokered cell secrets: %w", err)
 	}
-	r.cell.Status = model.CellStopped
+	r.cell.Status = model.CellTerminated
 	r.cell.Sandbox.Phase = model.SandboxStopped
 	r.cell.Sandbox.LastTransition = now
 	r.cell.Agent.Connected = false
 	r.cell.Agent.Status = "stopped"
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
-	s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: "operator", Action: "cell.destroy", Summary: "Sandbox cell stopped", Detail: "The control plane released the cell; the worktree remains reviewable.", Danger: "high", Timestamp: now})
+	s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: "operator", Action: "cell.terminated", Summary: "Sandbox cell terminated", Detail: "The control plane released runtime resources; durable evidence remains reviewable.", Danger: "high", Timestamp: now})
 	r.docs = nil
 	r.history = nil
 	r.writers = nil
@@ -1474,7 +1483,7 @@ func (s *Store) Prompt(id, prompt string) (model.CellSnapshot, error) {
 		return model.CellSnapshot{}, fmt.Errorf("cell %q is stopped", id)
 	}
 	now := time.Now().UTC()
-	r.cell.Status = model.CellSteering
+	r.cell.Status = model.CellActive
 	r.cell.Agent.Status = "steering"
 	r.cell.Agent.LastSeen = now
 	r.cell.Agent.Connected = true
@@ -1890,6 +1899,7 @@ func (s *Store) ApproveReview(id, reviewID string) (model.CellSnapshot, error) {
 		return model.CellSnapshot{}, fmt.Errorf("persist entity approval receipt: %w", err)
 	}
 	r.cell.Reviews[selected].Status = "accepted"
+	r.cell.Status = model.CellReviewing
 
 	files := map[string]bool{}
 	acceptedIDs := make([]string, 0, len(r.cell.Reviews))
@@ -1930,6 +1940,7 @@ func (s *Store) ApproveReview(id, reviewID string) (model.CellSnapshot, error) {
 			r.cell.Reviews[i].Status = "committing"
 		}
 	}
+	r.cell.Status = model.CellCommitting
 	request := review.CommitRequest{CellID: id, Branch: r.cell.Branch, Review: aggregate, Workdir: r.workdir}
 	committer := s.committer
 	s.mu.Unlock()
@@ -1940,6 +1951,7 @@ func (s *Store) ApproveReview(id, reviewID string) (model.CellSnapshot, error) {
 	defer s.mu.Unlock()
 	r = s.cells[id]
 	if err != nil {
+		r.cell.Status = model.CellReviewing
 		for i := range r.cell.Reviews {
 			if r.cell.Reviews[i].Status == "committing" {
 				r.cell.Reviews[i].Status = "pending"
@@ -1956,6 +1968,7 @@ func (s *Store) ApproveReview(id, reviewID string) (model.CellSnapshot, error) {
 			r.cell.Reviews[i].Receipt = receipt
 		}
 	}
+	r.cell.Status = model.CellActive
 	// A successful commit establishes one coherent BASE for the entire
 	// worktree, not merely the entity paths displayed by the approved card.
 	r.baseline = append(r.baseline[:0], r.cell.Files...)
@@ -2006,6 +2019,7 @@ func (s *Store) AcknowledgeReview(id, reviewID, actor, reason string, secretFind
 		if item.CommitReady {
 			item.Status = "pending"
 		}
+		r.cell.Status = model.CellReviewing
 		now := time.Now().UTC()
 		r.cell.UpdatedAt = now
 		r.cell.Revision++
@@ -2037,6 +2051,7 @@ func (s *Store) RejectReview(id, reviewID, actor, reason string) (model.CellSnap
 		item.Status = "rejected"
 		item.CommitReady = false
 		item.RejectionReason = secrets.RedactText(reason)
+		r.cell.Status = model.CellActive
 		prompt := "Review " + reviewID + " was rejected: " + item.RejectionReason
 		now := time.Now().UTC()
 		r.cell.UpdatedAt = now
@@ -2086,7 +2101,7 @@ func (s *Store) Attach(id, token, agentID, name string) (model.CellSnapshot, err
 	}
 	now := time.Now().UTC()
 	r.cell.Agent = model.AgentPresence{ID: agentID, Name: name, Status: "attached", Connected: true, LastSeen: now}
-	if r.cell.Status == model.CellCreating && r.cell.Sandbox.Phase == model.SandboxRunning {
+	if (r.cell.Status == model.CellProvisioning || r.cell.Status == model.CellArming) && r.cell.Sandbox.Phase == model.SandboxRunning && r.cell.Sandbox.Armed {
 		r.cell.Status = model.CellReady
 	}
 	r.cell.UpdatedAt = now
@@ -2109,7 +2124,7 @@ func (s *Store) Detach(id, agentID string) (model.CellSnapshot, error) {
 	r.cell.Agent.Connected = false
 	r.cell.Agent.Status = "detached"
 	r.cell.Agent.LastSeen = now
-	if r.cell.Status != model.CellStopped && r.cell.Status != model.CellError {
+	if r.cell.Status != model.CellTerminated && r.cell.Status != model.CellFailed {
 		r.cell.Status = model.CellReady
 	}
 	r.cell.UpdatedAt = now
@@ -2129,13 +2144,59 @@ func (s *Store) UpdateAgent(id, agentID, status string) (model.CellSnapshot, err
 	r.cell.Agent.ID = defaultValue(agentID, r.cell.Agent.ID)
 	r.cell.Agent.Status = defaultValue(status, "working")
 	r.cell.Agent.Connected = true
-	if r.cell.Agent.Status == "idle" && r.cell.Status != model.CellStopped && r.cell.Status != model.CellError {
-		r.cell.Status = model.CellIdle
+	if r.cell.Status != model.CellTerminated && r.cell.Status != model.CellFailed && r.cell.Status != model.CellDraining {
+		if r.cell.Agent.Status == "idle" {
+			r.cell.Status = model.CellReady
+		} else if r.cell.Agent.Status == "paused" {
+			r.cell.Status = model.CellPaused
+		} else {
+			r.cell.Status = model.CellActive
+		}
 	}
 	r.cell.Agent.LastSeen = now
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
 	s.appendEventLocked(r, model.Event{Kind: model.EventPresence, Source: r.cell.Agent.ID, Action: "agent.status", Summary: "Agent status: " + r.cell.Agent.Status, Timestamp: now})
+	return snapshotLocked(r), nil
+}
+
+func (s *Store) Pause(id, actor string) (model.CellSnapshot, error) {
+	return s.setPaused(id, actor, true)
+}
+
+func (s *Store) Resume(id, actor string) (model.CellSnapshot, error) {
+	return s.setPaused(id, actor, false)
+}
+
+func (s *Store) setPaused(id, actor string, paused bool) (model.CellSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.cells[id]
+	if !ok {
+		return model.CellSnapshot{}, fmt.Errorf("cell %q not found", id)
+	}
+	if r.cell.Status == model.CellTerminated || r.cell.Status == model.CellFailed || r.cell.Status == model.CellDraining {
+		return model.CellSnapshot{}, fmt.Errorf("cell %q cannot change execution state from %s", id, r.cell.Status)
+	}
+	if !r.cell.Agent.Connected {
+		return model.CellSnapshot{}, fmt.Errorf("cell %q has no attached agent", id)
+	}
+	target, action, summary, agentStatus := model.CellPaused, "cell.pause", "Agent execution paused", "paused"
+	if !paused {
+		if r.cell.Status != model.CellPaused {
+			return model.CellSnapshot{}, fmt.Errorf("cell %q is not paused", id)
+		}
+		target, action, summary, agentStatus = model.CellActive, "cell.resume", "Agent execution resumed", "working"
+	} else if r.cell.Status == model.CellPaused {
+		return snapshotLocked(r), nil
+	}
+	now := time.Now().UTC()
+	r.cell.Status = target
+	r.cell.Agent.Status = agentStatus
+	r.cell.Agent.LastSeen = now
+	r.cell.UpdatedAt = now
+	r.cell.Revision++
+	s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: defaultValue(actor, "operator"), Actor: defaultValue(actor, "operator"), Action: action, Summary: summary, Danger: "medium", Authenticated: true, Timestamp: now})
 	return snapshotLocked(r), nil
 }
 
@@ -2376,7 +2437,7 @@ func (s *Store) AttachToken(id string) (string, error) {
 func (s *Store) mintAgentCapability(id string) (string, error) {
 	return s.capabilities.Mint(capability.Claims{
 		CellID: id, ActorID: "agent-" + id, Role: "agent",
-		Permissions: []string{"hub:attach", "doc:read", "doc:write", "prompt:read", "telemetry:write", "review:read", "secret:request", "agent:status", "agent:commit"},
+		Permissions: []string{"hub:attach", "doc:read", "doc:write", "prompt:read", "telemetry:write", "review:read", "secret:request", "agent:status", "agent:commit", "agent:control"},
 	}, 15*time.Minute)
 }
 
@@ -2468,7 +2529,8 @@ func (s *Store) applyPolicy(ctx context.Context, id, content, actor string) (mod
 		s.mu.Unlock()
 		return snapshot, preview, nil
 	}
-	r.cell.Status = model.CellSteering
+	previousStatus := r.cell.Status
+	r.cell.Status = model.CellArming
 	r.cell.UpdatedAt = time.Now().UTC()
 	r.cell.Revision++
 	s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: defaultValue(actor, "operator"), Actor: defaultValue(actor, "operator"), Action: "policy.replay", Summary: "Policy replay approved; enforcement re-arm started", Detail: strings.Join(preview.Changes, "; "), Danger: preview.After.Danger, Authenticated: true, Timestamp: r.cell.UpdatedAt})
@@ -2481,7 +2543,7 @@ func (s *Store) applyPolicy(ctx context.Context, id, content, actor string) (mod
 	defer s.mu.Unlock()
 	r = s.cells[id]
 	if err != nil {
-		r.cell.Status = model.CellReady
+		r.cell.Status = previousStatus
 		r.cell.UpdatedAt = time.Now().UTC()
 		r.cell.Revision++
 		s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: "sandbox-runtime", Action: "policy.rearm.failed", Summary: "Policy enforcement re-arm rejected; previous profile retained", Detail: secrets.RedactText(err.Error()), Danger: "critical", Timestamp: r.cell.UpdatedAt})
@@ -2497,7 +2559,7 @@ func (s *Store) applyPolicy(ctx context.Context, id, content, actor string) (mod
 		r.cell.Sandbox.Enforcement = "memory-runtime"
 		r.cell.Status = model.CellReady
 	} else {
-		r.cell.Status = model.CellSteering
+		r.cell.Status = model.CellArming
 		r.cell.Sandbox.Armed = false
 		r.cell.Sandbox.ArmedAt = time.Time{}
 		r.cell.Sandbox.Programs = nil
@@ -2627,17 +2689,17 @@ func (s *Store) applyPodLocked(r *record, pod sandbox.Pod, emit bool) {
 	r.cell.Sandbox = model.Sandbox{Name: pod.Name, Phase: model.SandboxPhase(pod.Phase), LastTransition: now, Failure: pod.Failure, Armed: armed, ArmedAt: previous.ArmedAt, Programs: append([]string(nil), previous.Programs...), ManifestDigest: previous.ManifestDigest, ObjectDigest: previous.ObjectDigest, CgroupID: previous.CgroupID, Enforcement: previous.Enforcement}
 	switch pod.Phase {
 	case sandbox.PhaseRunning:
-		if armed && r.cell.Status != model.CellSteering {
+		if armed && r.cell.Status != model.CellActive && r.cell.Status != model.CellPaused && r.cell.Status != model.CellReviewing && r.cell.Status != model.CellCommitting {
 			r.cell.Status = model.CellReady
 		} else if !armed {
-			r.cell.Status = model.CellCreating
+			r.cell.Status = model.CellArming
 		}
 	case sandbox.PhasePending:
-		r.cell.Status = model.CellCreating
+		r.cell.Status = model.CellArming
 	case sandbox.PhaseStopped:
-		r.cell.Status = model.CellStopped
+		r.cell.Status = model.CellTerminated
 	case sandbox.PhaseFailed:
-		r.cell.Status = model.CellError
+		r.cell.Status = model.CellFailed
 	}
 	r.cell.UpdatedAt = now
 	if emit {
@@ -2812,6 +2874,7 @@ func (s *Store) loadState() (bool, error) {
 		}
 		r := s.newRecordLocked(saved.Cell.ID, saved.Cell.RepoURL, saved.Cell.Branch, saved.Cell.SandboxProfile, saved.Cell.Files, saved.Cell.CreatedAt)
 		r.cell = saved.Cell
+		r.cell.Status = normalizeCellStatus(r.cell.Status)
 		r.events = append([]model.Event(nil), saved.Events...)
 		r.baseline = append([]model.File(nil), saved.Baseline...)
 		if len(saved.Documents) > 0 {
@@ -2842,6 +2905,23 @@ func (s *Store) loadState() (bool, error) {
 		s.cells[saved.Cell.ID] = r
 	}
 	return true, nil
+}
+
+func normalizeCellStatus(status model.CellStatus) model.CellStatus {
+	switch status {
+	case "creating":
+		return model.CellProvisioning
+	case "idle":
+		return model.CellReady
+	case "steering":
+		return model.CellActive
+	case "stopped":
+		return model.CellTerminated
+	case "error":
+		return model.CellFailed
+	default:
+		return status
+	}
 }
 
 func (s *Store) appendEvidenceLocked(r *record, kind string, value any) error {

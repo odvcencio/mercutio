@@ -160,6 +160,8 @@ func main() {
 	app.Mount("POST /api/cells/{cellID}/policy/preview", operatorMutation(http.HandlerFunc(apiHandler.PolicyPreview)))
 	app.Mount("POST /api/cells/{cellID}/policy/apply", operatorMutation(http.HandlerFunc(apiHandler.PolicyApply)))
 	app.Mount("POST /api/cells/{cellID}/prompt", operatorMutation(http.HandlerFunc(apiHandler.Prompt)))
+	app.Mount("POST /api/cells/{cellID}/pause", operatorMutation(http.HandlerFunc(apiHandler.Control)))
+	app.Mount("POST /api/cells/{cellID}/resume", operatorMutation(http.HandlerFunc(apiHandler.Control)))
 	app.Mount("POST /api/cells/{cellID}/destroy", operatorMutation(http.HandlerFunc(apiHandler.Destroy)))
 	app.Mount("POST /api/cells/{cellID}/reviews/{reviewID}/approve", operatorMutation(http.HandlerFunc(apiHandler.Approve)))
 	app.Mount("POST /api/cells/{cellID}/reviews/{reviewID}/acknowledge", operatorMutation(http.HandlerFunc(apiHandler.AcknowledgeReview)))

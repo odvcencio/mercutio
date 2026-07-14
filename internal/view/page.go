@@ -108,6 +108,13 @@ func renderSidebar(state model.State, selected *model.CellSnapshot, csrfToken st
 			gosx.El("div", gosx.Attrs(gosx.Attr("class", "cell-runtime")), gosx.Text(string(cell.Sandbox.Phase)+" · "+containmentLabel(cell)+" · rung "+defaultText(cell.Sandbox.Enforcement, "unarmed"))),
 		}
 		if cell.Status != model.CellStopped {
+			controlAction, controlLabel := "pause-cell", "Pause agent"
+			if cell.Status == model.CellPaused {
+				controlAction, controlLabel = "resume-cell", "Resume agent"
+			}
+			if cell.Agent.Connected {
+				children = append(children, actionForm(csrfToken, controlAction, "cell-control", hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text(controlLabel))))
+			}
 			children = append(children, actionForm(csrfToken, "destroy-cell", "cell-stop", hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Stop cell"))))
 		}
 		cards = append(cards, gosx.El("article", gosx.Attrs(gosx.Attr("class", className)), gosx.Fragment(children...)))
