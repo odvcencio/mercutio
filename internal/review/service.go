@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	graftentity "github.com/odvcencio/graft/pkg/entity"
 	"m31labs.dev/mercutio/internal/intelligence"
 	"m31labs.dev/mercutio/internal/model"
 	"m31labs.dev/mercutio/internal/secrets"
@@ -109,6 +110,8 @@ type Service struct {
 	intelligence *intelligence.Service
 }
 
+const structuralParseTimeoutMicros = uint64(250_000)
+
 func NewService(intelligenceService *intelligence.Service) *Service {
 	if intelligenceService == nil {
 		intelligenceService = intelligence.New()
@@ -156,45 +159,28 @@ func (s *Service) Generate(baseline, current []model.File) []model.Review {
 		beforeAnalysis := s.intelligence.Analyze(path, language, oldContent)
 		afterAnalysis := s.intelligence.Analyze(path, language, newContent)
 		secretScan := combineSecretScans(s.intelligence.ScanSecrets(path, oldContent), s.intelligence.ScanSecrets(path, newContent))
-		oldSymbols := symbolsByKey(beforeAnalysis.Symbols)
-		newSymbols := symbolsByKey(afterAnalysis.Symbols)
-		keys := make(map[string]struct{}, len(oldSymbols)+len(newSymbols))
-		for key := range oldSymbols {
-			keys[key] = struct{}{}
-		}
-		for key := range newSymbols {
-			keys[key] = struct{}{}
-		}
-		var entities []string
-		signatureChanges := map[string]bool{}
-		for key := range keys {
-			oldSymbol, oldFound := oldSymbols[key]
-			newSymbol, newFound := newSymbols[key]
-			oldText := spanText(oldContent, oldSymbol.Range)
-			newText := spanText(newContent, newSymbol.Range)
-			if oldFound && newFound && oldText == newText {
-				continue
-			}
-			if newFound {
-				entities = append(entities, newSymbol.Name)
-				signatureChanges[newSymbol.Name] = oldFound && signatureText(oldContent, oldSymbol) != signatureText(newContent, newSymbol)
-			} else {
-				entities = append(entities, oldSymbol.Name)
-			}
+		entities, labels, signatureChanges, structural := graftReviewEntities(path, oldContent, newContent, beforeAnalysis, afterAnalysis)
+		if !structural {
+			entities, labels, signatureChanges = symbolReviewEntities(oldContent, newContent, beforeAnalysis.Symbols, afterAnalysis.Symbols)
 		}
 		if len(entities) == 0 {
 			entities = []string{path}
+			labels = map[string]string{path: path}
 		}
 		sort.Strings(entities)
 		for _, entity := range entities {
 			secretShape := len(secretScan.Findings) > 0
 			status := "pending"
 			commitReady := true
-			summary := fmt.Sprintf("%s changed in %s.", entity, path)
+			label := labels[entity]
+			if label == "" {
+				label = entity
+			}
+			summary := fmt.Sprintf("%s changed in %s.", label, path)
 			if secretShape {
 				status = "blocked"
 				commitReady = false
-				summary = fmt.Sprintf("%s changed in %s; secret-shaped content requires the secret broker.", entity, path)
+				summary = fmt.Sprintf("%s changed in %s; secret-shaped content requires the secret broker.", label, path)
 			}
 			review := model.Review{
 				ID:               reviewID(path, entity),
@@ -213,6 +199,107 @@ func (s *Service) Generate(baseline, current []model.File) []model.Review {
 		}
 	}
 	return reviews
+}
+
+type reviewEntity struct {
+	body      string
+	label     string
+	signature string
+}
+
+func graftReviewEntities(path, before, after string, beforeAnalysis, afterAnalysis model.Analysis) ([]string, map[string]string, map[string]bool, bool) {
+	if beforeAnalysis.Error != "" || beforeAnalysis.HasErrors || afterAnalysis.Error != "" || afterAnalysis.HasErrors {
+		return nil, nil, nil, false
+	}
+	left, err := extractReviewEntities(path, before)
+	if err != nil {
+		return nil, nil, nil, false
+	}
+	right, err := extractReviewEntities(path, after)
+	if err != nil {
+		return nil, nil, nil, false
+	}
+	keys := make(map[string]bool, len(left)+len(right))
+	for key := range left {
+		keys[key] = true
+	}
+	for key := range right {
+		keys[key] = true
+	}
+	labels := map[string]string{}
+	signatures := map[string]bool{}
+	var changed []string
+	for key := range keys {
+		oldEntity, oldOK := left[key]
+		newEntity, newOK := right[key]
+		if oldOK == newOK && oldEntity.body == newEntity.body {
+			continue
+		}
+		changed = append(changed, key)
+		chosen := oldEntity
+		if newOK {
+			chosen = newEntity
+		}
+		labels[key] = chosen.label
+		signatures[key] = oldOK && newOK && oldEntity.signature != newEntity.signature
+	}
+	return changed, labels, signatures, true
+}
+
+func extractReviewEntities(path, content string) (map[string]reviewEntity, error) {
+	list, err := graftentity.ExtractWithOptions(path, []byte(content), graftentity.ExtractOptions{ParseTimeoutMicros: structuralParseTimeoutMicros})
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]reviewEntity, len(list.Entities))
+	for i := range list.Entities {
+		entity := &list.Entities[i]
+		key := entity.IdentityKey()
+		if key == "" {
+			return nil, fmt.Errorf("entity has no identity")
+		}
+		label := entity.Name
+		if entity.Receiver != "" {
+			label = entity.Receiver + "." + entity.Name
+		}
+		if label == "" {
+			label = key
+		}
+		result[key] = reviewEntity{body: string(entity.Body), label: label, signature: entity.Signature}
+	}
+	return result, nil
+}
+
+func symbolReviewEntities(before, after string, beforeSymbols, afterSymbols []model.Symbol) ([]string, map[string]string, map[string]bool) {
+	oldSymbols := symbolsByKey(beforeSymbols)
+	newSymbols := symbolsByKey(afterSymbols)
+	keys := make(map[string]struct{}, len(oldSymbols)+len(newSymbols))
+	for key := range oldSymbols {
+		keys[key] = struct{}{}
+	}
+	for key := range newSymbols {
+		keys[key] = struct{}{}
+	}
+	var entities []string
+	labels := map[string]string{}
+	signatureChanges := map[string]bool{}
+	for key := range keys {
+		oldSymbol, oldFound := oldSymbols[key]
+		newSymbol, newFound := newSymbols[key]
+		oldText := spanText(before, oldSymbol.Range)
+		newText := spanText(after, newSymbol.Range)
+		if oldFound && newFound && oldText == newText {
+			continue
+		}
+		entities = append(entities, key)
+		if newFound {
+			labels[key] = newSymbol.Name
+			signatureChanges[key] = oldFound && signatureText(before, oldSymbol) != signatureText(after, newSymbol)
+		} else {
+			labels[key] = oldSymbol.Name
+		}
+	}
+	return entities, labels, signatureChanges
 }
 
 func combineSecretScans(scans ...intelligence.SecretScan) intelligence.SecretScan {

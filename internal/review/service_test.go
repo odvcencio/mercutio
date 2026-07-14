@@ -2,10 +2,34 @@ package review
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"m31labs.dev/mercutio/internal/model"
 )
+
+func TestGenerateUsesGraftReceiverIdentity(t *testing.T) {
+	service := NewService(nil)
+	before := "package demo\n\ntype A struct{}\ntype B struct{}\nfunc (A) Run() int { return 1 }\nfunc (B) Run() int { return 2 }\n"
+	after := "package demo\n\ntype A struct{}\ntype B struct{}\nfunc (A) Run() int { return 3 }\nfunc (B) Run() int { return 2 }\n"
+	reviews := service.Generate([]model.File{{Path: "demo.go", Language: "go", Content: before}}, []model.File{{Path: "demo.go", Language: "go", Content: after}})
+	if len(reviews) != 1 {
+		t.Fatalf("reviews=%+v", reviews)
+	}
+	if !strings.HasPrefix(reviews[0].Entity, "decl:") || !strings.Contains(reviews[0].Entity, ":A:Run:") || !strings.Contains(reviews[0].Summary, "A.Run") {
+		t.Fatalf("review did not use receiver-qualified Graft identity: %+v", reviews[0])
+	}
+}
+
+func TestGenerateKeepsIdentityAcrossSignatureChangeAndFlagsIt(t *testing.T) {
+	service := NewService(nil)
+	before := "package demo\n\nfunc Transform(value int) int { return value }\n"
+	after := "package demo\n\nfunc Transform(value int, scale int) int { return value * scale }\n"
+	reviews := service.Generate([]model.File{{Path: "demo.go", Language: "go", Content: before}}, []model.File{{Path: "demo.go", Language: "go", Content: after}})
+	if len(reviews) != 1 || !reviews[0].SignatureChanged || !strings.Contains(reviews[0].Entity, ":Transform:") {
+		t.Fatalf("signature-changing entity review=%+v", reviews)
+	}
+}
 
 func TestGenerateMarksSecretShapedChangesBlocked(t *testing.T) {
 	service := NewService(nil)
