@@ -16,7 +16,7 @@ require (
 	k8s.io/apimachinery v0.30.3
 	k8s.io/client-go v0.30.3
 	m31labs.dev/arbiter v1.9.0
-	m31labs.dev/gosx/editor v0.19.5
+	m31labs.dev/gosx/editor v0.19.7
 	m31labs.dev/horizon v0.4.1-0.20260713223007-0337446190e0
 )
 

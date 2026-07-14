@@ -163,6 +163,88 @@ func TestGoSXEditorIntelligence(t *testing.T) {
 	); err != nil {
 		t.Fatalf("malformed source diagnostic: %v; browser errors: %s", err, joinedErrors(&mutex, browserErrors))
 	}
+
+	var checklist struct {
+		FindReplaced    bool `json:"findReplaced"`
+		Commented       bool `json:"commented"`
+		Indented        bool `json:"indented"`
+		BracketMatched  bool `json:"bracketMatched"`
+		UndoDepth       int  `json:"undoDepth"`
+		UndoRestored    bool `json:"undoRestored"`
+		RedoRestored    bool `json:"redoRestored"`
+		Lines           int  `json:"lines"`
+		PastedLines     int  `json:"pastedLines"`
+		LargeFileEdited bool `json:"largeFileEdited"`
+	}
+	const editorChecklist = `(() => {
+		const source = document.querySelector("#editor-content");
+		const form = source.closest("form[data-editor-native]");
+		const key = options => source.dispatchEvent(new KeyboardEvent("keydown", {bubbles:true,cancelable:true,...options}));
+
+		const oldName = "first";
+		const oldCount = source.value.split(oldName).length - 1;
+		document.querySelector('[data-code-command="find"]').click();
+		const query = document.querySelector('[data-code-find="query"]');
+		const replacement = document.querySelector('[data-code-find="replacement"]');
+		query.value = oldName;
+		query.dispatchEvent(new Event("input", {bubbles:true}));
+		replacement.value = "alpha";
+		document.querySelector('[data-code-find-action="replace-all"]').click();
+		const findReplaced = oldCount > 0 && !source.value.includes(oldName) && source.value.includes("alpha");
+		source.setSelectionRange(source.value.length, source.value.length);
+		source.setRangeText("\nfunc checklist() {\n\tcheckOne()\n\tcheckTwo()\n}\n", source.selectionStart, source.selectionEnd, "end");
+		source.dispatchEvent(new InputEvent("input", {bubbles:true,inputType:"insertText"}));
+
+		const commentStart = source.value.indexOf("\tcheckOne()");
+		const commentEnd = source.value.indexOf("\n", source.value.indexOf("checkTwo()", commentStart));
+		source.setSelectionRange(commentStart, commentEnd);
+		key({key:"/",ctrlKey:true});
+		const commented = source.value.slice(commentStart, commentEnd + 6).split("\n").every(line => line.trimStart().startsWith("//"));
+		key({key:"/",ctrlKey:true});
+
+		const indentStart = source.value.indexOf("\tcheckOne()");
+		const indentEnd = source.value.indexOf("\n", source.value.indexOf("checkTwo()", indentStart));
+		source.setSelectionRange(indentStart, indentEnd);
+		key({key:"Tab"});
+		const indented = source.value.slice(indentStart, indentEnd + 2).split("\n").every(line => line.startsWith("\t\t"));
+
+		const bracket = source.value.indexOf("{", source.value.indexOf("func pair"));
+		source.setSelectionRange(bracket, bracket);
+		key({key:"\\",ctrlKey:true,shiftKey:true});
+		const bracketMatched = Boolean(form.dataset.bracketMatch) && source.value.slice(source.selectionStart, source.selectionEnd) === "}";
+
+		source.setSelectionRange(source.value.length, source.value.length);
+		const beforeHistory = source.value;
+		for (let i=0; i<50; i++) {
+			source.dispatchEvent(new InputEvent("beforeinput", {bubbles:true,cancelable:true,inputType:"insertText",data:String(i%10)}));
+			source.setRangeText(String(i%10), source.selectionStart, source.selectionEnd, "end");
+			source.dispatchEvent(new InputEvent("input", {bubbles:true,inputType:"insertText",data:String(i%10)}));
+		}
+		const afterHistory = source.value;
+		const undoDepth = Number(form.dataset.undoDepth || 0);
+		for (let i=0; i<50; i++) key({key:"z",ctrlKey:true});
+		const undoRestored = source.value === beforeHistory;
+		for (let i=0; i<50; i++) key({key:"y",ctrlKey:true});
+		const redoRestored = source.value === afterHistory;
+
+		const seed = Array.from({length:4500}, (_, i) => "// seed-" + i).join("\n") + "\n";
+		const pasted = Array.from({length:500}, (_, i) => "// paste-" + i).join("\n") + "\n";
+		source.value = seed;
+		source.setSelectionRange(source.value.length, source.value.length);
+		source.dispatchEvent(new InputEvent("beforeinput", {bubbles:true,cancelable:true,inputType:"insertFromPaste",data:pasted}));
+		source.setRangeText(pasted, source.selectionStart, source.selectionEnd, "end");
+		source.dispatchEvent(new InputEvent("input", {bubbles:true,inputType:"insertFromPaste",data:pasted}));
+		source.dispatchEvent(new InputEvent("beforeinput", {bubbles:true,cancelable:true,inputType:"insertText",data:"// edited\n"}));
+		source.setRangeText("// edited\n", source.selectionStart, source.selectionEnd, "end");
+		source.dispatchEvent(new InputEvent("input", {bubbles:true,inputType:"insertText",data:"// edited\n"}));
+		return {findReplaced,commented,indented,bracketMatched,undoDepth,undoRestored,redoRestored,lines:source.value.split("\n").length-1,pastedLines:(source.value.match(/^\/\/ paste-/gm)||[]).length,largeFileEdited:source.value.endsWith("// edited\n")};
+	})()`
+	if err := chromedp.Run(ctx, chromedp.Evaluate(editorChecklist, &checklist)); err != nil {
+		t.Fatal(err)
+	}
+	if !checklist.FindReplaced || !checklist.Commented || !checklist.Indented || !checklist.BracketMatched || checklist.UndoDepth < 50 || !checklist.UndoRestored || !checklist.RedoRestored || checklist.Lines != 5001 || checklist.PastedLines != 500 || !checklist.LargeFileEdited {
+		t.Fatalf("full editor checklist failed: %+v", checklist)
+	}
 	if errors := joinedErrors(&mutex, browserErrors); errors != "" {
 		t.Fatalf("browser errors: %s", errors)
 	}
