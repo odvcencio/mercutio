@@ -150,42 +150,15 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: mercutio-mercutio-default-deny-all
-  namespace: mercutio-cell-standard
-spec:
-  podSelector: {}
-  policyTypes: [Ingress, Egress]
----
-# Source: mercutio/templates/network-policy.yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: mercutio-mercutio-control-and-dns
-  namespace: mercutio-cell-standard
+  name: mercutio-mercutio-standard-egress
+  namespace: mercutio-cell-strict
 spec:
   podSelector:
     matchLabels:
       mercutio.dev/managed: "true"
+      mercutio.dev/network-profile: standard
   policyTypes: [Egress]
   egress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: default
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: mercutio
-              app.kubernetes.io/instance: mercutio
-      ports:
-        - {protocol: TCP, port: 9011}
-    - to:
-        - namespaceSelector:
-            matchLabels: {kubernetes.io/metadata.name: kube-system}
-          podSelector:
-            matchLabels: {k8s-app: kube-dns}
-      ports:
-        - {protocol: UDP, port: 53}
-        - {protocol: TCP, port: 53}
     - to:
         - ipBlock: {cidr: 0.0.0.0/0}
       ports:
@@ -195,6 +168,95 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
+  name: mercutio-mercutio-open-egress
+  namespace: mercutio-cell-strict
+spec:
+  podSelector:
+    matchLabels:
+      mercutio.dev/managed: "true"
+      mercutio.dev/network-profile: open
+  policyTypes: [Egress]
+  egress:
+    - {}
+---
+# Source: mercutio/templates/network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mercutio-mercutio-default-deny-all
+  namespace: mercutio-cell-standard
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Source: mercutio/templates/network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mercutio-mercutio-control-and-dns
+  namespace: mercutio-cell-standard
+spec:
+  podSelector:
+    matchLabels:
+      mercutio.dev/managed: "true"
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mercutio
+              app.kubernetes.io/instance: mercutio
+      ports:
+        - {protocol: TCP, port: 9011}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+# Source: mercutio/templates/network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mercutio-mercutio-standard-egress
+  namespace: mercutio-cell-standard
+spec:
+  podSelector:
+    matchLabels:
+      mercutio.dev/managed: "true"
+      mercutio.dev/network-profile: standard
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: {cidr: 0.0.0.0/0}
+      ports:
+        - {protocol: TCP, port: 443}
+---
+# Source: mercutio/templates/network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mercutio-mercutio-open-egress
+  namespace: mercutio-cell-standard
+spec:
+  podSelector:
+    matchLabels:
+      mercutio.dev/managed: "true"
+      mercutio.dev/network-profile: open
+  policyTypes: [Egress]
+  egress:
+    - {}
+---
+# Source: mercutio/templates/network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
   name: mercutio-mercutio-default-deny-all
   namespace: mercutio-cell-open
 spec:
@@ -231,6 +293,38 @@ spec:
       ports:
         - {protocol: UDP, port: 53}
         - {protocol: TCP, port: 53}
+---
+# Source: mercutio/templates/network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mercutio-mercutio-standard-egress
+  namespace: mercutio-cell-open
+spec:
+  podSelector:
+    matchLabels:
+      mercutio.dev/managed: "true"
+      mercutio.dev/network-profile: standard
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: {cidr: 0.0.0.0/0}
+      ports:
+        - {protocol: TCP, port: 443}
+---
+# Source: mercutio/templates/network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mercutio-mercutio-open-egress
+  namespace: mercutio-cell-open
+spec:
+  podSelector:
+    matchLabels:
+      mercutio.dev/managed: "true"
+      mercutio.dev/network-profile: open
+  policyTypes: [Egress]
+  egress:
     - {}
 ---
 # Source: mercutio/templates/network-policy.yaml

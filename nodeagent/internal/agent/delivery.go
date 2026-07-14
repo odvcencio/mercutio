@@ -148,7 +148,7 @@ type HTTPControl struct {
 func (h HTTPControl) Armed(ctx context.Context, cell Cell, result ArmResult) error {
 	payload, _ := json.Marshal(map[string]any{
 		"nodeID": cell.NodeID, "programs": result.Programs, "manifestDigest": result.ManifestDigest,
-		"objectDigest": result.ObjectDigest, "cgroupID": cell.CgroupID, "enforcement": result.Enforcement,
+		"objectDigest": result.ObjectDigest, "profileDigest": cell.ProfileDigest, "cgroupID": cell.CgroupID, "enforcement": result.Enforcement,
 	})
 	endpoint := strings.TrimRight(h.BaseURL, "/") + "/api/internal/cells/" + cell.ID + "/armed"
 	return h.do(ctx, http.MethodPost, endpoint, payload)

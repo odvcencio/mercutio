@@ -138,7 +138,11 @@ func TestApplySpliceUsesExactUnicodeBaseAndRejectsStaleWriter(t *testing.T) {
 
 func TestActionApprovalIsDeliveredExactlyOnce(t *testing.T) {
 	store := NewStore()
-	if _, err := store.MarkArmed("cell-demo", ArmReceipt{NodeID: "node-a", Programs: []string{"GateExec"}, ManifestDigest: "sha256:manifest", ObjectDigest: "sha256:object", CgroupID: 99, Enforcement: "r1-bpf-lsm"}); err != nil {
+	snapshot, err := store.Snapshot("cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MarkArmed("cell-demo", ArmReceipt{NodeID: "node-a", Programs: []string{"GateExec"}, ManifestDigest: "sha256:manifest", ObjectDigest: "sha256:object", ProfileDigest: snapshot.Capabilities.ProfileDigest, CgroupID: 99, Enforcement: "r1-bpf-lsm"}); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, request, err := store.RequestActionApproval("cell-demo", "ask-1", "node-a", 77, 42, "exec", "/workspace/repo/tool")
@@ -154,6 +158,17 @@ func TestActionApprovalIsDeliveredExactlyOnce(t *testing.T) {
 	}
 	if repeated := store.TakeNodeActionDecisions("node-a"); len(repeated) != 0 {
 		t.Fatalf("decision delivered more than once: %+v", repeated)
+	}
+}
+
+func TestMarkArmedRejectsStaleProfileDigest(t *testing.T) {
+	store := NewStore()
+	_, err := store.MarkArmed("cell-demo", ArmReceipt{
+		NodeID: "node-a", Programs: []string{"GateExec"}, ManifestDigest: "sha256:manifest",
+		ObjectDigest: "sha256:object", ProfileDigest: "sha256:stale", CgroupID: 99,
+	})
+	if err == nil {
+		t.Fatal("stale profile arm receipt was accepted")
 	}
 }
 

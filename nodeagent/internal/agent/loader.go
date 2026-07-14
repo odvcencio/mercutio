@@ -141,9 +141,7 @@ func (m *ProgramManager) Arm(ctx context.Context, cell Cell) (ArmResult, error) 
 	if existing := m.cells[cell.ID]; existing != nil && slices.Equal(cellCgroupIDs(existing.cell), cellCgroupIDs(cell)) && existing.cell.WorktreeDev == cell.WorktreeDev && existing.cell.Profile == cell.Profile && existing.cell.ProfileDigest == cell.ProfileDigest && programSetEqual(existing.cell.Programs, programs) {
 		return m.armResult(cell.Profile, programs), nil
 	}
-	if existing := m.cells[cell.ID]; existing != nil {
-		m.disarmLocked(cell.ID)
-	}
+	existing := m.cells[cell.ID]
 	cgroupIDs := cellCgroupIDs(cell)
 	if len(cgroupIDs) == 0 || cell.CgroupPath == "" || cell.WorktreeDev == 0 {
 		return ArmResult{}, fmt.Errorf("cell %s has no resolved cgroup and worktree device", cell.ID)
@@ -160,9 +158,7 @@ func (m *ProgramManager) Arm(ctx context.Context, cell Cell) (ArmResult, error) 
 	cell.Programs = append([]string(nil), programs...)
 	for _, cgroupID := range cgroupIDs {
 		if err := programsForClass.objects.UpdateCellScope(cgroupID, bindings.CellScopeVal{CellLo: lo, CellHi: hi, Class: class, FsDev: cell.WorktreeDev}); err != nil {
-			for _, added := range cgroupIDs {
-				_ = programsForClass.objects.DeleteCellScope(added)
-			}
+			m.rollbackArm(&loadedCell{cell: cell, programs: programsForClass}, existing)
 			return ArmResult{}, fmt.Errorf("populate CellScope: %w", err)
 		}
 	}
@@ -170,7 +166,7 @@ func (m *ProgramManager) Arm(ctx context.Context, cell Cell) (ArmResult, error) 
 	if hasProgram(programs, "GateExec") && !programsForClass.execLSM {
 		execLink, err := programsForClass.objects.AttachGateExec()
 		if err != nil {
-			deleteCellScopes(programsForClass.objects, cgroupIDs)
+			m.rollbackArm(loaded, existing)
 			return ArmResult{}, fmt.Errorf("attach exec LSM: %w", err)
 		}
 		programsForClass.globalLinks = append(programsForClass.globalLinks, execLink)
@@ -179,7 +175,7 @@ func (m *ProgramManager) Arm(ctx context.Context, cell Cell) (ArmResult, error) 
 	if hasProgram(programs, "GateFileOpen") && !programsForClass.fileLSM {
 		fileLink, err := programsForClass.objects.AttachGateFileOpen()
 		if err != nil {
-			deleteCellScopes(programsForClass.objects, cgroupIDs)
+			m.rollbackArm(loaded, existing)
 			return ArmResult{}, fmt.Errorf("attach file LSM: %w", err)
 		}
 		programsForClass.globalLinks = append(programsForClass.globalLinks, fileLink)
@@ -195,8 +191,7 @@ func (m *ProgramManager) Arm(ctx context.Context, cell Cell) (ArmResult, error) 
 		for _, cgroupID := range cgroupIDs {
 			resolved4, resolved6, err := m.resolveNetKeys(ctx, cgroupID, destination)
 			if err != nil {
-				m.disarmLoaded(loaded)
-				deleteCellScopes(programsForClass.objects, cgroupIDs)
+				m.rollbackArm(loaded, existing)
 				return ArmResult{}, err
 			}
 			keys = append(keys, resolved4...)
@@ -204,16 +199,14 @@ func (m *ProgramManager) Arm(ctx context.Context, cell Cell) (ArmResult, error) 
 		}
 		for _, key := range keys {
 			if err := programsForClass.objects.UpdateNetAllow(key, 1); err != nil {
-				m.disarmLoaded(loaded)
-				deleteCellScopes(programsForClass.objects, cgroupIDs)
+				m.rollbackArm(loaded, existing)
 				return ArmResult{}, fmt.Errorf("populate NetAllow: %w", err)
 			}
 			loaded.netKeys = append(loaded.netKeys, key)
 		}
 		for _, key := range keys6 {
 			if err := programsForClass.objects.UpdateNet6Allow(key, 1); err != nil {
-				m.disarmLoaded(loaded)
-				deleteCellScopes(programsForClass.objects, cgroupIDs)
+				m.rollbackArm(loaded, existing)
 				return ArmResult{}, fmt.Errorf("populate Net6Allow: %w", err)
 			}
 			loaded.net6Keys = append(loaded.net6Keys, key)
@@ -222,8 +215,7 @@ func (m *ProgramManager) Arm(ctx context.Context, cell Cell) (ArmResult, error) 
 	if hasProgram(programs, "GateConnect4") {
 		connect4, err := programsForClass.objects.AttachGateConnect4(cell.CgroupPath)
 		if err != nil {
-			m.disarmLoaded(loaded)
-			deleteCellScopes(programsForClass.objects, cgroupIDs)
+			m.rollbackArm(loaded, existing)
 			return ArmResult{}, fmt.Errorf("attach cgroup connect4: %w", err)
 		}
 		loaded.links = append(loaded.links, connect4)
@@ -231,14 +223,16 @@ func (m *ProgramManager) Arm(ctx context.Context, cell Cell) (ArmResult, error) 
 	if hasProgram(programs, "GateConnect6") {
 		connect6, err := programsForClass.objects.AttachGateConnect6(cell.CgroupPath)
 		if err != nil {
-			m.disarmLoaded(loaded)
-			deleteCellScopes(programsForClass.objects, cgroupIDs)
+			m.rollbackArm(loaded, existing)
 			return ArmResult{}, fmt.Errorf("attach cgroup connect6: %w", err)
 		}
 		loaded.links = append(loaded.links, connect6)
 	}
 	m.cells[cell.ID] = loaded
 	m.identities[[2]uint64{lo, hi}] = cell.ID
+	if existing != nil {
+		m.retireLoaded(existing, loaded)
+	}
 	return m.armResult(cell.Profile, programs), nil
 }
 
@@ -285,6 +279,65 @@ func (m *ProgramManager) disarmLoaded(loaded *loadedCell) {
 	}
 	for _, key := range loaded.net6Keys {
 		_ = loaded.programs.objects.DeleteNet6Allow(key)
+	}
+}
+
+// rollbackArm removes only resources introduced by the attempted arm. When a
+// same-class update overwrote a scope, the previous value is restored so a
+// failed policy change cannot leave the cell unscoped.
+func (m *ProgramManager) rollbackArm(attempt, previous *loadedCell) {
+	for _, item := range attempt.links {
+		_ = item.Close()
+	}
+	sameCollection := previous != nil && previous.programs == attempt.programs
+	for _, key := range attempt.netKeys {
+		if !sameCollection || !slices.Contains(previous.netKeys, key) {
+			_ = attempt.programs.objects.DeleteNetAllow(key)
+		}
+	}
+	for _, key := range attempt.net6Keys {
+		if !sameCollection || !slices.Contains(previous.net6Keys, key) {
+			_ = attempt.programs.objects.DeleteNet6Allow(key)
+		}
+	}
+	deleteCellScopes(attempt.programs.objects, cellCgroupIDs(attempt.cell))
+	if sameCollection {
+		m.restoreCellScopes(previous)
+	}
+}
+
+func (m *ProgramManager) restoreCellScopes(loaded *loadedCell) {
+	class, err := profileClass(loaded.cell.Profile)
+	if err != nil {
+		return
+	}
+	lo, hi := cellIdentity(loaded.cell.ID)
+	for _, cgroupID := range cellCgroupIDs(loaded.cell) {
+		_ = loaded.programs.objects.UpdateCellScope(cgroupID, bindings.CellScopeVal{CellLo: lo, CellHi: hi, Class: class, FsDev: loaded.cell.WorktreeDev})
+	}
+}
+
+// retireLoaded runs only after the replacement is fully installed and visible
+// to event routing. Shared same-class entries are retained for the replacement.
+func (m *ProgramManager) retireLoaded(previous, replacement *loadedCell) {
+	for _, item := range previous.links {
+		_ = item.Close()
+	}
+	sameCollection := previous.programs == replacement.programs
+	for _, key := range previous.netKeys {
+		if !sameCollection || !slices.Contains(replacement.netKeys, key) {
+			_ = previous.programs.objects.DeleteNetAllow(key)
+		}
+	}
+	for _, key := range previous.net6Keys {
+		if !sameCollection || !slices.Contains(replacement.net6Keys, key) {
+			_ = previous.programs.objects.DeleteNet6Allow(key)
+		}
+	}
+	for _, cgroupID := range cellCgroupIDs(previous.cell) {
+		if !sameCollection || !slices.Contains(cellCgroupIDs(replacement.cell), cgroupID) {
+			_ = previous.programs.objects.DeleteCellScope(cgroupID)
+		}
 	}
 }
 

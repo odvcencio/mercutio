@@ -74,6 +74,12 @@ type WorkspaceDeviceRecorder interface {
 	RecordWorkspaceDevice(context.Context, string, uint64) error
 }
 
+// PolicyFinalizer promotes network enforcement only after the Node Agent has
+// confirmed that the matching kernel profile is live.
+type PolicyFinalizer interface {
+	FinalizePolicy(context.Context, string, string, string) error
+}
+
 type MemoryRuntime struct {
 	mu   sync.RWMutex
 	pods map[string]Pod
@@ -160,6 +166,19 @@ func (r *MemoryRuntime) Delete(_ context.Context, cellID string) error {
 }
 
 func (r *MemoryRuntime) RecordWorkspaceDevice(_ context.Context, _ string, _ uint64) error {
+	return nil
+}
+
+func (r *MemoryRuntime) FinalizePolicy(_ context.Context, cellID, profile, _ string) error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	pod, ok := r.pods[cellID]
+	if !ok {
+		return ErrNotFound
+	}
+	if pod.Profile != defaultValue(profile, "standard") {
+		return fmt.Errorf("sandbox desired profile changed before finalization")
+	}
 	return nil
 }
 
@@ -327,9 +346,9 @@ func (r *KubernetesRuntime) Managed(ctx context.Context) ([]Pod, error) {
 	return pods, nil
 }
 
-// Rearm changes the live pod's policy selector atomically. Kubernetes network
-// policies react to the label update without replacing the pod, preserving the
-// worktree, agent process, and attach session.
+// Rearm publishes the desired kernel profile on the live pod without replacing
+// it. Network policy remains on the previously armed profile until the matching
+// Node Agent receipt calls FinalizePolicy.
 func (r *KubernetesRuntime) Rearm(ctx context.Context, spec Spec) (Pod, error) {
 	if r == nil || r.client == nil {
 		return Pod{}, fmt.Errorf("Kubernetes sandbox runtime is not configured")
@@ -337,18 +356,24 @@ func (r *KubernetesRuntime) Rearm(ctx context.Context, spec Spec) (Pod, error) {
 	if err := validateSpec(spec); err != nil {
 		return Pod{}, err
 	}
-	namespace := r.namespaceFor(spec.Profile)
+	namespace, live, err := r.findCellPod(ctx, spec.CellID)
+	if err != nil {
+		return Pod{}, fmt.Errorf("find sandbox pod for re-arm: %w", err)
+	}
+	manifest, err := policy.Resolve(spec.Profile)
+	if err != nil {
+		return Pod{}, fmt.Errorf("resolve re-arm policy: %w", err)
+	}
+	if err := r.ensureAttachCredential(ctx, namespace, spec.CellID, spec.AttachToken, manifest.ProfileDigest); err != nil {
+		return Pod{}, err
+	}
+	if err := r.ensureArmCredential(ctx, namespace, spec.CellID, spec.ArmToken, manifest.ProfileDigest); err != nil {
+		return Pod{}, err
+	}
 	if err := r.ensureCellResource(ctx, namespace, spec); err != nil {
 		return Pod{}, err
 	}
-	pods, err := r.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: "mercutio.dev/cell-id=" + spec.CellID})
-	if err != nil {
-		return Pod{}, fmt.Errorf("list sandbox pods for re-arm: %w", err)
-	}
-	if len(pods.Items) == 0 {
-		return Pod{}, ErrNotFound
-	}
-	pod := pods.Items[0].DeepCopy()
+	pod := live
 	if pod.Labels == nil {
 		pod.Labels = make(map[string]string)
 	}
@@ -356,10 +381,6 @@ func (r *KubernetesRuntime) Rearm(ctx context.Context, spec Spec) (Pod, error) {
 		pod.Annotations = make(map[string]string)
 	}
 	pod.Labels["mercutio.dev/profile"] = defaultValue(spec.Profile, "standard")
-	manifest, err := policy.Resolve(spec.Profile)
-	if err != nil {
-		return Pod{}, fmt.Errorf("resolve re-arm policy: %w", err)
-	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
 		return Pod{}, fmt.Errorf("encode re-arm policy: %w", err)
@@ -374,6 +395,47 @@ func (r *KubernetesRuntime) Rearm(ctx context.Context, spec Spec) (Pod, error) {
 	result := podFromKubernetes(*updated, spec)
 	_ = r.updateCellStatus(ctx, namespace, result, updated.Spec.NodeName)
 	return result, nil
+}
+
+func (r *KubernetesRuntime) FinalizePolicy(ctx context.Context, cellID, profile, profileDigest string) error {
+	namespace, pod, err := r.findCellPod(ctx, cellID)
+	if err != nil {
+		return err
+	}
+	profile = defaultValue(profile, "standard")
+	if pod.Labels["mercutio.dev/profile"] != profile || pod.Annotations["mercutio.dev/profile-digest"] != profileDigest {
+		return fmt.Errorf("sandbox desired policy changed before network finalization")
+	}
+	if pod.Labels == nil {
+		pod.Labels = map[string]string{}
+	}
+	pod.Labels["mercutio.dev/network-profile"] = profile
+	if _, err := r.client.CoreV1().Pods(namespace).Update(ctx, pod, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("finalize sandbox network profile: %w", err)
+	}
+	return nil
+}
+
+func (r *KubernetesRuntime) findCellPod(ctx context.Context, cellID string) (string, *corev1.Pod, error) {
+	var namespace string
+	var live *corev1.Pod
+	for _, candidate := range r.cellNamespaces() {
+		pods, err := r.client.CoreV1().Pods(candidate).List(ctx, metav1.ListOptions{LabelSelector: "mercutio.dev/cell-id=" + cellID})
+		if err != nil {
+			return "", nil, fmt.Errorf("list sandbox pods in %s: %w", candidate, err)
+		}
+		for i := range pods.Items {
+			if live != nil {
+				return "", nil, fmt.Errorf("multiple live sandbox pods found for cell %q", cellID)
+			}
+			namespace = candidate
+			live = pods.Items[i].DeepCopy()
+		}
+	}
+	if live == nil {
+		return "", nil, ErrNotFound
+	}
+	return namespace, live, nil
 }
 
 func (r *KubernetesRuntime) Delete(ctx context.Context, cellID string) error {
@@ -559,6 +621,7 @@ func (r *KubernetesRuntime) renderTemplate(ctx context.Context, namespace string
 	pod.Labels["mercutio.dev/managed"] = "true"
 	pod.Labels["mercutio.dev/cell-id"] = spec.CellID
 	pod.Labels["mercutio.dev/profile"] = defaultValue(spec.Profile, "standard")
+	pod.Labels["mercutio.dev/network-profile"] = defaultValue(spec.Profile, "standard")
 	if pod.Annotations == nil {
 		pod.Annotations = make(map[string]string)
 	}

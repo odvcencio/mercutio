@@ -52,7 +52,7 @@ func TestKubernetesRuntimeRearmsPodMetadataInPlace(t *testing.T) {
 		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
 	})
 	runtime := NewKubernetesRuntime(client, KubernetesRuntimeOptions{Namespace: "cells"})
-	pod, err := runtime.Rearm(context.Background(), Spec{CellID: "cell-1", RepoURL: "https://github.com/example/project", Profile: "strict", AttachToken: "token"})
+	pod, err := runtime.Rearm(context.Background(), Spec{CellID: "cell-1", RepoURL: "https://github.com/example/project", Profile: "strict", AttachToken: "attach", ArmToken: "arm"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +62,42 @@ func TestKubernetesRuntimeRearmsPodMetadataInPlace(t *testing.T) {
 	}
 	if updated.UID != "stable-uid" || updated.Labels["mercutio.dev/profile"] != "strict" || updated.Annotations["mercutio.dev/policy-rearmed-at"] == "" || pod.Phase != PhaseRunning {
 		t.Fatalf("pod was not rearmed in place: runtime=%+v kubernetes=%+v", pod, updated)
+	}
+}
+
+func TestKubernetesRuntimeRearmsAcrossProfileClassesInCurrentNamespace(t *testing.T) {
+	started := metav1.Now()
+	client := fake.NewSimpleClientset(&corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "mercutio-cell-1", Namespace: "cells-standard", UID: "stable-uid", CreationTimestamp: started, Labels: map[string]string{"mercutio.dev/cell-id": "cell-1", "mercutio.dev/profile": "standard", "mercutio.dev/network-profile": "standard"}},
+		Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+	})
+	runtime := NewKubernetesRuntime(client, KubernetesRuntimeOptions{
+		Namespace: "control",
+		ClassNamespaces: map[string]string{
+			"strict": "cells-strict", "standard": "cells-standard", "open": "cells-open",
+		},
+	})
+	pod, err := runtime.Rearm(context.Background(), Spec{CellID: "cell-1", RepoURL: "https://github.com/example/project", Profile: "strict", AttachToken: "attach", ArmToken: "arm"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := client.CoreV1().Pods("cells-standard").Get(context.Background(), "mercutio-cell-1", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.UID != "stable-uid" || updated.Labels["mercutio.dev/profile"] != "strict" || updated.Labels["mercutio.dev/network-profile"] != "standard" || pod.Profile != "strict" {
+		t.Fatalf("class-changing re-arm did not preserve the live pod: runtime=%+v kubernetes=%+v", pod, updated)
+	}
+	if err := runtime.FinalizePolicy(context.Background(), "cell-1", "strict", updated.Annotations["mercutio.dev/profile-digest"]); err != nil {
+		t.Fatal(err)
+	}
+	updated, err = client.CoreV1().Pods("cells-standard").Get(context.Background(), "mercutio-cell-1", metav1.GetOptions{})
+	if err != nil || updated.Labels["mercutio.dev/network-profile"] != "strict" {
+		t.Fatalf("network profile was not finalized after kernel arm: profile=%q err=%v", updated.Labels["mercutio.dev/network-profile"], err)
+	}
+	pods, err := client.CoreV1().Pods("cells-strict").List(context.Background(), metav1.ListOptions{})
+	if err != nil || len(pods.Items) != 0 {
+		t.Fatalf("class-changing re-arm created a replacement pod: pods=%+v err=%v", pods.Items, err)
 	}
 }
 

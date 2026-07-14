@@ -313,6 +313,7 @@ func (h *Handler) Armed(w http.ResponseWriter, r *http.Request) {
 		Programs       []string `json:"programs"`
 		ManifestDigest string   `json:"manifestDigest"`
 		ObjectDigest   string   `json:"objectDigest"`
+		ProfileDigest  string   `json:"profileDigest"`
 		CgroupID       uint64   `json:"cgroupID"`
 		Enforcement    string   `json:"enforcement"`
 	}
@@ -320,7 +321,7 @@ func (h *Handler) Armed(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusBadRequest, err)
 		return
 	}
-	snapshot, err := h.store.MarkArmed(id, cell.ArmReceipt{NodeID: input.NodeID, Programs: input.Programs, ManifestDigest: input.ManifestDigest, ObjectDigest: input.ObjectDigest, CgroupID: input.CgroupID, Enforcement: input.Enforcement})
+	snapshot, err := h.store.MarkArmedContext(r.Context(), id, cell.ArmReceipt{NodeID: input.NodeID, Programs: input.Programs, ManifestDigest: input.ManifestDigest, ObjectDigest: input.ObjectDigest, ProfileDigest: input.ProfileDigest, CgroupID: input.CgroupID, Enforcement: input.Enforcement})
 	if err != nil {
 		errorJSON(w, http.StatusBadRequest, err)
 		return

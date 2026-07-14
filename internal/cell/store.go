@@ -563,22 +563,45 @@ type ArmReceipt struct {
 	Programs       []string
 	ManifestDigest string
 	ObjectDigest   string
+	ProfileDigest  string
 	CgroupID       uint64
 	Enforcement    string
 }
 
 func (s *Store) MarkArmed(id string, receipt ArmReceipt) (model.CellSnapshot, error) {
-	if strings.TrimSpace(receipt.NodeID) == "" || strings.TrimSpace(receipt.ManifestDigest) == "" || strings.TrimSpace(receipt.ObjectDigest) == "" || receipt.CgroupID == 0 || len(receipt.Programs) == 0 {
+	return s.MarkArmedContext(context.Background(), id, receipt)
+}
+
+func (s *Store) MarkArmedContext(ctx context.Context, id string, receipt ArmReceipt) (model.CellSnapshot, error) {
+	if strings.TrimSpace(receipt.NodeID) == "" || strings.TrimSpace(receipt.ManifestDigest) == "" || strings.TrimSpace(receipt.ObjectDigest) == "" || strings.TrimSpace(receipt.ProfileDigest) == "" || receipt.CgroupID == 0 || len(receipt.Programs) == 0 {
 		return model.CellSnapshot{}, fmt.Errorf("complete node, program, digest, and cgroup arm receipt is required")
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	r, ok := s.cells[id]
 	if !ok {
+		s.mu.Unlock()
 		return model.CellSnapshot{}, fmt.Errorf("cell %q not found", id)
 	}
 	if r.cell.Status == model.CellStopped {
+		s.mu.Unlock()
 		return model.CellSnapshot{}, fmt.Errorf("cell %q is stopped", id)
+	}
+	expectedProfile, expectedDigest := r.cell.Capabilities.Profile, r.cell.Capabilities.ProfileDigest
+	if receipt.ProfileDigest != expectedDigest {
+		s.mu.Unlock()
+		return model.CellSnapshot{}, fmt.Errorf("arm receipt profile digest does not match the desired policy")
+	}
+	s.mu.Unlock()
+	if finalizer, ok := s.runtime.(sandbox.PolicyFinalizer); ok {
+		if err := finalizer.FinalizePolicy(ctx, id, expectedProfile, expectedDigest); err != nil {
+			return model.CellSnapshot{}, fmt.Errorf("finalize network policy: %w", err)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r = s.cells[id]
+	if r == nil || r.cell.Status == model.CellStopped || r.cell.Capabilities.ProfileDigest != expectedDigest {
+		return model.CellSnapshot{}, fmt.Errorf("cell policy changed while arm receipt was finalized")
 	}
 	now := time.Now().UTC()
 	r.cell.Sandbox.Armed = true

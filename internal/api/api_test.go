@@ -68,7 +68,11 @@ func TestKernelTelemetryPersistsGzipBatchAndEvidenceGaps(t *testing.T) {
 
 func TestKernelAskCreatesOperatorApprovalAndNodeDecision(t *testing.T) {
 	store := cell.NewStore()
-	if _, err := store.MarkArmed("cell-demo", cell.ArmReceipt{NodeID: "node-a", Programs: []string{"GateExec"}, ManifestDigest: "sha256:manifest", ObjectDigest: "sha256:object", CgroupID: 77, Enforcement: "r1-bpf-lsm"}); err != nil {
+	snapshot, err := store.Snapshot("cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MarkArmed("cell-demo", cell.ArmReceipt{NodeID: "node-a", Programs: []string{"GateExec"}, ManifestDigest: "sha256:manifest", ObjectDigest: "sha256:object", ProfileDigest: snapshot.Capabilities.ProfileDigest, CgroupID: 77, Enforcement: "r1-bpf-lsm"}); err != nil {
 		t.Fatal(err)
 	}
 	handler := New(store, transport.NewCellHub(store))
@@ -94,7 +98,7 @@ func TestKernelAskCreatesOperatorApprovalAndNodeDecision(t *testing.T) {
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("telemetry=%d %s", response.Code, response.Body.String())
 	}
-	snapshot, _ := store.Snapshot("cell-demo")
+	snapshot, _ = store.Snapshot("cell-demo")
 	if len(snapshot.ActionApprovals) != 1 || snapshot.ActionApprovals[0].Status != "pending" {
 		t.Fatalf("approvals=%+v", snapshot.ActionApprovals)
 	}

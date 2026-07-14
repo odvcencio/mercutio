@@ -1,10 +1,10 @@
 {{- if and .Values.sandbox.enabled .Values.networkPolicy.enabled }}
-{{- range $profile := list "strict" "standard" "open" }}
+{{- range $namespaceProfile := list "strict" "standard" "open" }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: {{ include "mercutio.fullname" $ }}-default-deny-all
-  namespace: {{ index $.Values.cellNamespaces $profile }}
+  namespace: {{ index $.Values.cellNamespaces $namespaceProfile }}
 spec:
   podSelector: {}
   policyTypes: [Ingress, Egress]
@@ -13,7 +13,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: {{ include "mercutio.fullname" $ }}-control-and-dns
-  namespace: {{ index $.Values.cellNamespaces $profile }}
+  namespace: {{ index $.Values.cellNamespaces $namespaceProfile }}
 spec:
   podSelector:
     matchLabels:
@@ -38,14 +38,37 @@ spec:
       ports:
         - {protocol: UDP, port: 53}
         - {protocol: TCP, port: 53}
-{{- if eq $profile "standard" }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mercutio.fullname" $ }}-standard-egress
+  namespace: {{ index $.Values.cellNamespaces $namespaceProfile }}
+spec:
+  podSelector:
+    matchLabels:
+      mercutio.dev/managed: "true"
+      mercutio.dev/network-profile: standard
+  policyTypes: [Egress]
+  egress:
     - to:
         - ipBlock: {cidr: 0.0.0.0/0}
       ports:
         - {protocol: TCP, port: 443}
-{{- else if eq $profile "open" }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mercutio.fullname" $ }}-open-egress
+  namespace: {{ index $.Values.cellNamespaces $namespaceProfile }}
+spec:
+  podSelector:
+    matchLabels:
+      mercutio.dev/managed: "true"
+      mercutio.dev/network-profile: open
+  policyTypes: [Egress]
+  egress:
     - {}
-{{- end }}
 ---
 {{- end }}
 apiVersion: networking.k8s.io/v1
