@@ -671,7 +671,7 @@ int GateConnect4(struct bpf_sock_addr *ctx) {
     struct hzn_type_NetKey key = (struct hzn_type_NetKey){ .cgroup_id = cgroup_id, .dst_ip4 = ip, .dst_port = port, .protocol = (__u16)(protocol) };
     __u8 *allowed = NetAllow_lookup(key);
     if (allowed == 0) {
-        bool private_net = ((((ip & (((__u32)(255) << 24) | ((__u32)(0) << 16) | ((__u32)(0) << 8) | (__u32)(0))) == (((__u32)(10) << 24) | ((__u32)(0) << 16) | ((__u32)(0) << 8) | (__u32)(0))) || ((ip & (((__u32)(255) << 24) | ((__u32)(240) << 16) | ((__u32)(0) << 8) | (__u32)(0))) == (((__u32)(172) << 24) | ((__u32)(16) << 16) | ((__u32)(0) << 8) | (__u32)(0)))) || ((ip & (((__u32)(255) << 24) | ((__u32)(255) << 16) | ((__u32)(0) << 8) | (__u32)(0))) == (((__u32)(192) << 24) | ((__u32)(168) << 16) | ((__u32)(0) << 8) | (__u32)(0)))) || ((ip & (((__u32)(255) << 24) | ((__u32)(255) << 16) | ((__u32)(0) << 8) | (__u32)(0))) == (((__u32)(169) << 24) | ((__u32)(254) << 16) | ((__u32)(0) << 8) | (__u32)(0)));
+        bool private_net = (((((((ip & (((__u32)(255) << 24) | ((__u32)(0) << 16) | ((__u32)(0) << 8) | (__u32)(0))) == (((__u32)(10) << 24) | ((__u32)(0) << 16) | ((__u32)(0) << 8) | (__u32)(0))) || ((ip & (((__u32)(255) << 24) | ((__u32)(192) << 16) | ((__u32)(0) << 8) | (__u32)(0))) == (((__u32)(100) << 24) | ((__u32)(64) << 16) | ((__u32)(0) << 8) | (__u32)(0)))) || ((ip & (((__u32)(255) << 24) | ((__u32)(0) << 16) | ((__u32)(0) << 8) | (__u32)(0))) == (((__u32)(127) << 24) | ((__u32)(0) << 16) | ((__u32)(0) << 8) | (__u32)(0)))) || ((ip & (((__u32)(255) << 24) | ((__u32)(240) << 16) | ((__u32)(0) << 8) | (__u32)(0))) == (((__u32)(172) << 24) | ((__u32)(16) << 16) | ((__u32)(0) << 8) | (__u32)(0)))) || ((ip & (((__u32)(255) << 24) | ((__u32)(255) << 16) | ((__u32)(0) << 8) | (__u32)(0))) == (((__u32)(192) << 24) | ((__u32)(168) << 16) | ((__u32)(0) << 8) | (__u32)(0)))) || ((ip & (((__u32)(255) << 24) | ((__u32)(255) << 16) | ((__u32)(0) << 8) | (__u32)(0))) == (((__u32)(169) << 24) | ((__u32)(254) << 16) | ((__u32)(0) << 8) | (__u32)(0)))) || ((ip & (((__u32)(240) << 24) | ((__u32)(0) << 16) | ((__u32)(0) << 8) | (__u32)(0))) == (((__u32)(224) << 24) | ((__u32)(0) << 16) | ((__u32)(0) << 8) | (__u32)(0)));
         if (private_net) {
             verdict = 1;
         } else {
@@ -745,10 +745,13 @@ int GateConnect6(struct bpf_sock_addr *ctx) {
     __u32 protocol = hzn_cgroup_protocol(ctx);
     __u32 verdict = (__u32)(0);
     __u32 word0 = hzn_cgroup_dst_ip6_word(ctx, 0);
-    struct hzn_type_Net6Key key = (struct hzn_type_Net6Key){ .cgroup_id = cgroup_id, .dst_ip6_0 = word0, .dst_ip6_1 = hzn_cgroup_dst_ip6_word(ctx, 1), .dst_ip6_2 = hzn_cgroup_dst_ip6_word(ctx, 2), .dst_ip6_3 = hzn_cgroup_dst_ip6_word(ctx, 3), .dst_port = port, .protocol = (__u16)(protocol) };
+    __u32 word1 = hzn_cgroup_dst_ip6_word(ctx, 1);
+    __u32 word2 = hzn_cgroup_dst_ip6_word(ctx, 2);
+    __u32 word3 = hzn_cgroup_dst_ip6_word(ctx, 3);
+    struct hzn_type_Net6Key key = (struct hzn_type_Net6Key){ .cgroup_id = cgroup_id, .dst_ip6_0 = word0, .dst_ip6_1 = word1, .dst_ip6_2 = word2, .dst_ip6_3 = word3, .dst_port = port, .protocol = (__u16)(protocol) };
     __u8 *allowed = Net6Allow_lookup(key);
     if (allowed == 0) {
-        bool private_net = ((word0 & (__u32)(254)) == (__u32)(252)) || ((word0 & (__u32)(49407)) == (__u32)(33022));
+        bool private_net = ((((word0 & (__u32)(254)) == (__u32)(252)) || ((word0 & (__u32)(49407)) == (__u32)(33022))) || ((word0 & (__u32)(255)) == (__u32)(255))) || ((((word0 == 0) && (word1 == 0)) && (word2 == 0)) && ((word3 == 0) || (word3 == (__u32)(16777216))));
         if (private_net) {
             verdict = 1;
         } else {

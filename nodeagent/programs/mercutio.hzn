@@ -341,7 +341,7 @@ func GateConnect4(ctx cgroup.Connect) i32 {
     key := NetKey{cgroup_id: cgroup_id, dst_ip4: ip, dst_port: port, protocol: u16(protocol)}
     allowed := NetAllow.lookup(key)
     if allowed == nil {
-        private_net := (ip & cgroup.ip4(255, 0, 0, 0)) == cgroup.ip4(10, 0, 0, 0) || (ip & cgroup.ip4(255, 240, 0, 0)) == cgroup.ip4(172, 16, 0, 0) || (ip & cgroup.ip4(255, 255, 0, 0)) == cgroup.ip4(192, 168, 0, 0) || (ip & cgroup.ip4(255, 255, 0, 0)) == cgroup.ip4(169, 254, 0, 0)
+        private_net := (ip & cgroup.ip4(255, 0, 0, 0)) == cgroup.ip4(10, 0, 0, 0) || (ip & cgroup.ip4(255, 192, 0, 0)) == cgroup.ip4(100, 64, 0, 0) || (ip & cgroup.ip4(255, 0, 0, 0)) == cgroup.ip4(127, 0, 0, 0) || (ip & cgroup.ip4(255, 240, 0, 0)) == cgroup.ip4(172, 16, 0, 0) || (ip & cgroup.ip4(255, 255, 0, 0)) == cgroup.ip4(192, 168, 0, 0) || (ip & cgroup.ip4(255, 255, 0, 0)) == cgroup.ip4(169, 254, 0, 0) || (ip & cgroup.ip4(240, 0, 0, 0)) == cgroup.ip4(224, 0, 0, 0)
         if private_net {
             verdict = 1
         } else if scope.class == 1 {
@@ -411,10 +411,13 @@ func GateConnect6(ctx cgroup.Connect) i32 {
     protocol := cgroup.protocol(ctx)
     verdict := u32(0)
     word0 := cgroup.dst_ip6_word(ctx, 0)
-    key := Net6Key{cgroup_id: cgroup_id, dst_ip6_0: word0, dst_ip6_1: cgroup.dst_ip6_word(ctx, 1), dst_ip6_2: cgroup.dst_ip6_word(ctx, 2), dst_ip6_3: cgroup.dst_ip6_word(ctx, 3), dst_port: port, protocol: u16(protocol)}
+    word1 := cgroup.dst_ip6_word(ctx, 1)
+    word2 := cgroup.dst_ip6_word(ctx, 2)
+    word3 := cgroup.dst_ip6_word(ctx, 3)
+    key := Net6Key{cgroup_id: cgroup_id, dst_ip6_0: word0, dst_ip6_1: word1, dst_ip6_2: word2, dst_ip6_3: word3, dst_port: port, protocol: u16(protocol)}
     allowed := Net6Allow.lookup(key)
     if allowed == nil {
-        private_net := (word0 & u32(254)) == u32(252) || (word0 & u32(49407)) == u32(33022)
+        private_net := (word0 & u32(254)) == u32(252) || (word0 & u32(49407)) == u32(33022) || (word0 & u32(255)) == u32(255) || (word0 == 0 && word1 == 0 && word2 == 0 && (word3 == 0 || word3 == u32(16777216)))
         if private_net {
             verdict = 1
         } else if scope.class == 1 {

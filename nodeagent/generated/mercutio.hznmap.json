@@ -210,8 +210,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9060,
-        "end_byte": 9078,
+        "start_byte": 9252,
+        "end_byte": 9270,
         "start": {
           "line": 367,
           "column": 24
@@ -322,8 +322,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10063,
-        "end_byte": 10098,
+        "start_byte": 10255,
+        "end_byte": 10290,
         "start": {
           "line": 403,
           "column": 8
@@ -350,8 +350,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10353,
-        "end_byte": 10380,
+        "start_byte": 10545,
+        "end_byte": 10572,
         "start": {
           "line": 413,
           "column": 14
@@ -1358,14 +1358,14 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10616,
-        "end_byte": 10637,
+        "start_byte": 10865,
+        "end_byte": 10886,
         "start": {
-          "line": 415,
+          "line": 418,
           "column": 16
         },
         "end": {
-          "line": 415,
+          "line": 418,
           "column": 37
         }
       },
@@ -1638,8 +1638,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8804,
-        "end_byte": 8827,
+        "start_byte": 8996,
+        "end_byte": 9019,
         "start": {
           "line": 357,
           "column": 14
@@ -1666,8 +1666,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9516,
-        "end_byte": 9543,
+        "start_byte": 9708,
+        "end_byte": 9735,
         "start": {
           "line": 380,
           "column": 5
@@ -1694,8 +1694,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10114,
-        "end_byte": 10142,
+        "start_byte": 10306,
+        "end_byte": 10334,
         "start": {
           "line": 404,
           "column": 9
@@ -5951,14 +5951,14 @@
       "source": {
         "file": "programs/mercutio.hzn",
         "start_byte": 8160,
-        "end_byte": 8433,
+        "end_byte": 8625,
         "start": {
           "line": 344,
           "column": 9
         },
         "end": {
           "line": 344,
-          "column": 282
+          "column": 474
         }
       },
       "generated": {
@@ -5978,8 +5978,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8471,
-        "end_byte": 8482,
+        "start_byte": 8663,
+        "end_byte": 8674,
         "start": {
           "line": 346,
           "column": 13
@@ -6006,8 +6006,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8532,
-        "end_byte": 8543,
+        "start_byte": 8724,
+        "end_byte": 8735,
         "start": {
           "line": 348,
           "column": 13
@@ -6034,8 +6034,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8593,
-        "end_byte": 8604,
+        "start_byte": 8785,
+        "end_byte": 8796,
         "start": {
           "line": 350,
           "column": 13
@@ -6062,8 +6062,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8559,
-        "end_byte": 8614,
+        "start_byte": 8751,
+        "end_byte": 8806,
         "start": {
           "line": 349,
           "column": 16
@@ -6090,8 +6090,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8498,
-        "end_byte": 8614,
+        "start_byte": 8690,
+        "end_byte": 8806,
         "start": {
           "line": 347,
           "column": 16
@@ -6118,8 +6118,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8442,
-        "end_byte": 8614,
+        "start_byte": 8634,
+        "end_byte": 8806,
         "start": {
           "line": 345,
           "column": 9
@@ -6147,7 +6147,7 @@
       "source": {
         "file": "programs/mercutio.hzn",
         "start_byte": 8132,
-        "end_byte": 8620,
+        "end_byte": 8812,
         "start": {
           "line": 343,
           "column": 5
@@ -6174,8 +6174,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8625,
-        "end_byte": 8722,
+        "start_byte": 8817,
+        "end_byte": 8914,
         "start": {
           "line": 353,
           "column": 5
@@ -6202,8 +6202,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8773,
-        "end_byte": 8784,
+        "start_byte": 8965,
+        "end_byte": 8976,
         "start": {
           "line": 355,
           "column": 9
@@ -6230,8 +6230,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8727,
-        "end_byte": 8790,
+        "start_byte": 8919,
+        "end_byte": 8982,
         "start": {
           "line": 354,
           "column": 5
@@ -6258,8 +6258,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8795,
-        "end_byte": 8827,
+        "start_byte": 8987,
+        "end_byte": 9019,
         "start": {
           "line": 357,
           "column": 5
@@ -6286,8 +6286,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8858,
-        "end_byte": 8870,
+        "start_byte": 9050,
+        "end_byte": 9062,
         "start": {
           "line": 359,
           "column": 9
@@ -6314,8 +6314,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8925,
-        "end_byte": 8943,
+        "start_byte": 9117,
+        "end_byte": 9135,
         "start": {
           "line": 361,
           "column": 13
@@ -6342,8 +6342,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8879,
-        "end_byte": 8953,
+        "start_byte": 9071,
+        "end_byte": 9145,
         "start": {
           "line": 360,
           "column": 9
@@ -6370,8 +6370,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8962,
-        "end_byte": 8981,
+        "start_byte": 9154,
+        "end_byte": 9173,
         "start": {
           "line": 363,
           "column": 9
@@ -6398,8 +6398,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8832,
-        "end_byte": 8987,
+        "start_byte": 9024,
+        "end_byte": 9179,
         "start": {
           "line": 358,
           "column": 5
@@ -6426,8 +6426,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 8992,
-        "end_byte": 9010,
+        "start_byte": 9184,
+        "end_byte": 9202,
         "start": {
           "line": 365,
           "column": 5
@@ -6454,8 +6454,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9015,
-        "end_byte": 9036,
+        "start_byte": 9207,
+        "end_byte": 9228,
         "start": {
           "line": 366,
           "column": 5
@@ -6482,8 +6482,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9041,
-        "end_byte": 9079,
+        "start_byte": 9233,
+        "end_byte": 9271,
         "start": {
           "line": 367,
           "column": 5
@@ -6510,8 +6510,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9084,
-        "end_byte": 9114,
+        "start_byte": 9276,
+        "end_byte": 9306,
         "start": {
           "line": 368,
           "column": 5
@@ -6538,8 +6538,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9119,
-        "end_byte": 9155,
+        "start_byte": 9311,
+        "end_byte": 9347,
         "start": {
           "line": 369,
           "column": 5
@@ -6566,8 +6566,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9160,
-        "end_byte": 9193,
+        "start_byte": 9352,
+        "end_byte": 9385,
         "start": {
           "line": 370,
           "column": 5
@@ -6594,8 +6594,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9198,
-        "end_byte": 9231,
+        "start_byte": 9390,
+        "end_byte": 9423,
         "start": {
           "line": 371,
           "column": 5
@@ -6622,8 +6622,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9236,
-        "end_byte": 9267,
+        "start_byte": 9428,
+        "end_byte": 9459,
         "start": {
           "line": 372,
           "column": 5
@@ -6650,8 +6650,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9272,
-        "end_byte": 9305,
+        "start_byte": 9464,
+        "end_byte": 9497,
         "start": {
           "line": 373,
           "column": 5
@@ -6678,8 +6678,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9310,
-        "end_byte": 9345,
+        "start_byte": 9502,
+        "end_byte": 9537,
         "start": {
           "line": 374,
           "column": 5
@@ -6706,8 +6706,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9350,
-        "end_byte": 9380,
+        "start_byte": 9542,
+        "end_byte": 9572,
         "start": {
           "line": 375,
           "column": 5
@@ -6734,8 +6734,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9385,
-        "end_byte": 9418,
+        "start_byte": 9577,
+        "end_byte": 9610,
         "start": {
           "line": 376,
           "column": 5
@@ -6762,8 +6762,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9423,
-        "end_byte": 9441,
+        "start_byte": 9615,
+        "end_byte": 9633,
         "start": {
           "line": 377,
           "column": 5
@@ -6790,8 +6790,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9446,
-        "end_byte": 9473,
+        "start_byte": 9638,
+        "end_byte": 9665,
         "start": {
           "line": 378,
           "column": 5
@@ -6818,8 +6818,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9478,
-        "end_byte": 9511,
+        "start_byte": 9670,
+        "end_byte": 9703,
         "start": {
           "line": 379,
           "column": 5
@@ -6846,8 +6846,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9516,
-        "end_byte": 9543,
+        "start_byte": 9708,
+        "end_byte": 9735,
         "start": {
           "line": 380,
           "column": 5
@@ -6874,8 +6874,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9590,
-        "end_byte": 9608,
+        "start_byte": 9782,
+        "end_byte": 9800,
         "start": {
           "line": 382,
           "column": 9
@@ -6902,8 +6902,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9548,
-        "end_byte": 9614,
+        "start_byte": 9740,
+        "end_byte": 9806,
         "start": {
           "line": 381,
           "column": 5
@@ -6930,8 +6930,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9619,
-        "end_byte": 9638,
+        "start_byte": 9811,
+        "end_byte": 9830,
         "start": {
           "line": 384,
           "column": 5
@@ -6959,7 +6959,7 @@
       "source": {
         "file": "programs/mercutio.hzn",
         "start_byte": 7576,
-        "end_byte": 9640,
+        "end_byte": 9832,
         "start": {
           "line": 326,
           "column": 1
@@ -6986,8 +6986,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9737,
-        "end_byte": 9773,
+        "start_byte": 9929,
+        "end_byte": 9965,
         "start": {
           "line": 390,
           "column": 5
@@ -7014,8 +7014,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9778,
-        "end_byte": 9814,
+        "start_byte": 9970,
+        "end_byte": 10006,
         "start": {
           "line": 391,
           "column": 5
@@ -7042,8 +7042,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9845,
-        "end_byte": 9864,
+        "start_byte": 10037,
+        "end_byte": 10056,
         "start": {
           "line": 393,
           "column": 9
@@ -7070,8 +7070,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9819,
-        "end_byte": 9870,
+        "start_byte": 10011,
+        "end_byte": 10062,
         "start": {
           "line": 392,
           "column": 5
@@ -7098,8 +7098,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9875,
-        "end_byte": 9907,
+        "start_byte": 10067,
+        "end_byte": 10099,
         "start": {
           "line": 395,
           "column": 5
@@ -7126,8 +7126,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9938,
-        "end_byte": 9950,
+        "start_byte": 10130,
+        "end_byte": 10142,
         "start": {
           "line": 397,
           "column": 9
@@ -7154,8 +7154,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9993,
-        "end_byte": 10011,
+        "start_byte": 10185,
+        "end_byte": 10203,
         "start": {
           "line": 399,
           "column": 13
@@ -7182,8 +7182,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9959,
-        "end_byte": 10021,
+        "start_byte": 10151,
+        "end_byte": 10213,
         "start": {
           "line": 398,
           "column": 9
@@ -7210,8 +7210,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10030,
-        "end_byte": 10049,
+        "start_byte": 10222,
+        "end_byte": 10241,
         "start": {
           "line": 401,
           "column": 9
@@ -7238,8 +7238,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9912,
-        "end_byte": 10055,
+        "start_byte": 10104,
+        "end_byte": 10247,
         "start": {
           "line": 396,
           "column": 5
@@ -7266,8 +7266,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10114,
-        "end_byte": 10142,
+        "start_byte": 10306,
+        "end_byte": 10334,
         "start": {
           "line": 404,
           "column": 9
@@ -7294,8 +7294,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10185,
-        "end_byte": 10203,
+        "start_byte": 10377,
+        "end_byte": 10395,
         "start": {
           "line": 406,
           "column": 13
@@ -7322,8 +7322,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10151,
-        "end_byte": 10213,
+        "start_byte": 10343,
+        "end_byte": 10405,
         "start": {
           "line": 405,
           "column": 9
@@ -7350,8 +7350,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10222,
-        "end_byte": 10241,
+        "start_byte": 10414,
+        "end_byte": 10433,
         "start": {
           "line": 408,
           "column": 9
@@ -7378,8 +7378,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10060,
-        "end_byte": 10247,
+        "start_byte": 10252,
+        "end_byte": 10439,
         "start": {
           "line": 403,
           "column": 5
@@ -7406,8 +7406,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10252,
-        "end_byte": 10280,
+        "start_byte": 10444,
+        "end_byte": 10472,
         "start": {
           "line": 410,
           "column": 5
@@ -7434,8 +7434,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10285,
-        "end_byte": 10317,
+        "start_byte": 10477,
+        "end_byte": 10509,
         "start": {
           "line": 411,
           "column": 5
@@ -7462,8 +7462,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10322,
-        "end_byte": 10339,
+        "start_byte": 10514,
+        "end_byte": 10531,
         "start": {
           "line": 412,
           "column": 5
@@ -7490,8 +7490,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10344,
-        "end_byte": 10380,
+        "start_byte": 10536,
+        "end_byte": 10572,
         "start": {
           "line": 413,
           "column": 5
@@ -7518,15 +7518,15 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10385,
-        "end_byte": 10600,
+        "start_byte": 10577,
+        "end_byte": 10613,
         "start": {
           "line": 414,
           "column": 5
         },
         "end": {
           "line": 414,
-          "column": 220
+          "column": 41
         }
       },
       "generated": {
@@ -7546,15 +7546,15 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10605,
-        "end_byte": 10637,
+        "start_byte": 10618,
+        "end_byte": 10654,
         "start": {
           "line": 415,
           "column": 5
         },
         "end": {
           "line": 415,
-          "column": 37
+          "column": 41
         }
       },
       "generated": {
@@ -7574,15 +7574,43 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10670,
-        "end_byte": 10753,
+        "start_byte": 10659,
+        "end_byte": 10695,
+        "start": {
+          "line": 416,
+          "column": 5
+        },
+        "end": {
+          "line": 416,
+          "column": 41
+        }
+      },
+      "generated": {
+        "start": {
+          "line": 750,
+          "column": 1
+        },
+        "end": {
+          "line": 751,
+          "column": 1
+        }
+      },
+      "node": "short_var",
+      "function": "GateConnect6",
+      "section": "cgroup/connect6"
+    },
+    {
+      "source": {
+        "file": "programs/mercutio.hzn",
+        "start_byte": 10700,
+        "end_byte": 10849,
         "start": {
           "line": 417,
-          "column": 9
+          "column": 5
         },
         "end": {
           "line": 417,
-          "column": 92
+          "column": 154
         }
       },
       "generated": {
@@ -7602,42 +7630,70 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10791,
-        "end_byte": 10802,
+        "start_byte": 10854,
+        "end_byte": 10886,
         "start": {
-          "line": 419,
-          "column": 13
+          "line": 418,
+          "column": 5
         },
         "end": {
-          "line": 419,
-          "column": 24
+          "line": 418,
+          "column": 37
         }
       },
       "generated": {
         "start": {
-          "line": 753,
+          "line": 752,
           "column": 1
         },
         "end": {
-          "line": 754,
+          "line": 753,
           "column": 1
         }
       },
-      "node": "assign",
+      "node": "short_var",
       "function": "GateConnect6",
       "section": "cgroup/connect6"
     },
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10852,
-        "end_byte": 10863,
+        "start_byte": 10919,
+        "end_byte": 11122,
         "start": {
-          "line": 421,
+          "line": 420,
+          "column": 9
+        },
+        "end": {
+          "line": 420,
+          "column": 212
+        }
+      },
+      "generated": {
+        "start": {
+          "line": 754,
+          "column": 1
+        },
+        "end": {
+          "line": 755,
+          "column": 1
+        }
+      },
+      "node": "short_var",
+      "function": "GateConnect6",
+      "section": "cgroup/connect6"
+    },
+    {
+      "source": {
+        "file": "programs/mercutio.hzn",
+        "start_byte": 11160,
+        "end_byte": 11171,
+        "start": {
+          "line": 422,
           "column": 13
         },
         "end": {
-          "line": 421,
+          "line": 422,
           "column": 24
         }
       },
@@ -7658,14 +7714,14 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10913,
-        "end_byte": 10924,
+        "start_byte": 11221,
+        "end_byte": 11232,
         "start": {
-          "line": 423,
+          "line": 424,
           "column": 13
         },
         "end": {
-          "line": 423,
+          "line": 424,
           "column": 24
         }
       },
@@ -7686,14 +7742,70 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10879,
-        "end_byte": 10934,
+        "start_byte": 11282,
+        "end_byte": 11293,
         "start": {
-          "line": 422,
+          "line": 426,
+          "column": 13
+        },
+        "end": {
+          "line": 426,
+          "column": 24
+        }
+      },
+      "generated": {
+        "start": {
+          "line": 762,
+          "column": 1
+        },
+        "end": {
+          "line": 763,
+          "column": 1
+        }
+      },
+      "node": "assign",
+      "function": "GateConnect6",
+      "section": "cgroup/connect6"
+    },
+    {
+      "source": {
+        "file": "programs/mercutio.hzn",
+        "start_byte": 11248,
+        "end_byte": 11303,
+        "start": {
+          "line": 425,
           "column": 16
         },
         "end": {
-          "line": 424,
+          "line": 427,
+          "column": 10
+        }
+      },
+      "generated": {
+        "start": {
+          "line": 761,
+          "column": 1
+        },
+        "end": {
+          "line": 764,
+          "column": 1
+        }
+      },
+      "node": "if",
+      "function": "GateConnect6",
+      "section": "cgroup/connect6"
+    },
+    {
+      "source": {
+        "file": "programs/mercutio.hzn",
+        "start_byte": 11187,
+        "end_byte": 11303,
+        "start": {
+          "line": 423,
+          "column": 16
+        },
+        "end": {
+          "line": 427,
           "column": 10
         }
       },
@@ -7703,7 +7815,7 @@
           "column": 1
         },
         "end": {
-          "line": 761,
+          "line": 765,
           "column": 1
         }
       },
@@ -7714,14 +7826,14 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10818,
-        "end_byte": 10934,
+        "start_byte": 11131,
+        "end_byte": 11303,
         "start": {
-          "line": 420,
-          "column": 16
+          "line": 421,
+          "column": 9
         },
         "end": {
-          "line": 424,
+          "line": 427,
           "column": 10
         }
       },
@@ -7731,7 +7843,7 @@
           "column": 1
         },
         "end": {
-          "line": 762,
+          "line": 766,
           "column": 1
         }
       },
@@ -7742,52 +7854,24 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10762,
-        "end_byte": 10934,
+        "start_byte": 10891,
+        "end_byte": 11309,
         "start": {
-          "line": 418,
-          "column": 9
-        },
-        "end": {
-          "line": 424,
-          "column": 10
-        }
-      },
-      "generated": {
-        "start": {
-          "line": 752,
-          "column": 1
-        },
-        "end": {
-          "line": 763,
-          "column": 1
-        }
-      },
-      "node": "if",
-      "function": "GateConnect6",
-      "section": "cgroup/connect6"
-    },
-    {
-      "source": {
-        "file": "programs/mercutio.hzn",
-        "start_byte": 10642,
-        "end_byte": 10940,
-        "start": {
-          "line": 416,
+          "line": 419,
           "column": 5
         },
         "end": {
-          "line": 425,
+          "line": 428,
           "column": 6
         }
       },
       "generated": {
         "start": {
-          "line": 750,
+          "line": 753,
           "column": 1
         },
         "end": {
-          "line": 764,
+          "line": 767,
           "column": 1
         }
       },
@@ -7798,24 +7882,24 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 10945,
-        "end_byte": 11043,
+        "start_byte": 11314,
+        "end_byte": 11412,
         "start": {
-          "line": 426,
+          "line": 429,
           "column": 5
         },
         "end": {
-          "line": 426,
+          "line": 429,
           "column": 103
         }
       },
       "generated": {
         "start": {
-          "line": 764,
+          "line": 767,
           "column": 1
         },
         "end": {
-          "line": 765,
+          "line": 768,
           "column": 1
         }
       },
@@ -7826,24 +7910,24 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11095,
-        "end_byte": 11106,
+        "start_byte": 11464,
+        "end_byte": 11475,
         "start": {
-          "line": 428,
+          "line": 431,
           "column": 9
         },
         "end": {
-          "line": 428,
+          "line": 431,
           "column": 20
         }
       },
       "generated": {
         "start": {
-          "line": 766,
+          "line": 769,
           "column": 1
         },
         "end": {
-          "line": 767,
+          "line": 770,
           "column": 1
         }
       },
@@ -7854,24 +7938,24 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11048,
-        "end_byte": 11112,
+        "start_byte": 11417,
+        "end_byte": 11481,
         "start": {
-          "line": 427,
+          "line": 430,
           "column": 5
         },
         "end": {
-          "line": 429,
+          "line": 432,
           "column": 6
         }
       },
       "generated": {
         "start": {
-          "line": 765,
+          "line": 768,
           "column": 1
         },
         "end": {
-          "line": 768,
+          "line": 771,
           "column": 1
         }
       },
@@ -7882,99 +7966,15 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11117,
-        "end_byte": 11138,
+        "start_byte": 11486,
+        "end_byte": 11507,
         "start": {
-          "line": 430,
+          "line": 433,
           "column": 5
         },
         "end": {
-          "line": 430,
+          "line": 433,
           "column": 26
-        }
-      },
-      "generated": {
-        "start": {
-          "line": 768,
-          "column": 1
-        },
-        "end": {
-          "line": 769,
-          "column": 1
-        }
-      },
-      "node": "assign",
-      "function": "GateConnect6",
-      "section": "cgroup/connect6"
-    },
-    {
-      "source": {
-        "file": "programs/mercutio.hzn",
-        "start_byte": 11143,
-        "end_byte": 11181,
-        "start": {
-          "line": 431,
-          "column": 5
-        },
-        "end": {
-          "line": 431,
-          "column": 43
-        }
-      },
-      "generated": {
-        "start": {
-          "line": 769,
-          "column": 1
-        },
-        "end": {
-          "line": 770,
-          "column": 1
-        }
-      },
-      "node": "assign",
-      "function": "GateConnect6",
-      "section": "cgroup/connect6"
-    },
-    {
-      "source": {
-        "file": "programs/mercutio.hzn",
-        "start_byte": 11186,
-        "end_byte": 11216,
-        "start": {
-          "line": 432,
-          "column": 5
-        },
-        "end": {
-          "line": 432,
-          "column": 35
-        }
-      },
-      "generated": {
-        "start": {
-          "line": 770,
-          "column": 1
-        },
-        "end": {
-          "line": 771,
-          "column": 1
-        }
-      },
-      "node": "assign",
-      "function": "GateConnect6",
-      "section": "cgroup/connect6"
-    },
-    {
-      "source": {
-        "file": "programs/mercutio.hzn",
-        "start_byte": 11221,
-        "end_byte": 11257,
-        "start": {
-          "line": 433,
-          "column": 5
-        },
-        "end": {
-          "line": 433,
-          "column": 41
         }
       },
       "generated": {
@@ -7994,15 +7994,15 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11262,
-        "end_byte": 11295,
+        "start_byte": 11512,
+        "end_byte": 11550,
         "start": {
           "line": 434,
           "column": 5
         },
         "end": {
           "line": 434,
-          "column": 38
+          "column": 43
         }
       },
       "generated": {
@@ -8022,15 +8022,15 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11300,
-        "end_byte": 11333,
+        "start_byte": 11555,
+        "end_byte": 11585,
         "start": {
           "line": 435,
           "column": 5
         },
         "end": {
           "line": 435,
-          "column": 38
+          "column": 35
         }
       },
       "generated": {
@@ -8050,15 +8050,15 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11338,
-        "end_byte": 11369,
+        "start_byte": 11590,
+        "end_byte": 11626,
         "start": {
           "line": 436,
           "column": 5
         },
         "end": {
           "line": 436,
-          "column": 36
+          "column": 41
         }
       },
       "generated": {
@@ -8078,8 +8078,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11374,
-        "end_byte": 11407,
+        "start_byte": 11631,
+        "end_byte": 11664,
         "start": {
           "line": 437,
           "column": 5
@@ -8106,15 +8106,15 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11412,
-        "end_byte": 11447,
+        "start_byte": 11669,
+        "end_byte": 11702,
         "start": {
           "line": 438,
           "column": 5
         },
         "end": {
           "line": 438,
-          "column": 40
+          "column": 38
         }
       },
       "generated": {
@@ -8134,15 +8134,15 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11452,
-        "end_byte": 11482,
+        "start_byte": 11707,
+        "end_byte": 11738,
         "start": {
           "line": 439,
           "column": 5
         },
         "end": {
           "line": 439,
-          "column": 35
+          "column": 36
         }
       },
       "generated": {
@@ -8162,8 +8162,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11487,
-        "end_byte": 11520,
+        "start_byte": 11743,
+        "end_byte": 11776,
         "start": {
           "line": 440,
           "column": 5
@@ -8190,15 +8190,15 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11525,
-        "end_byte": 11543,
+        "start_byte": 11781,
+        "end_byte": 11816,
         "start": {
           "line": 441,
           "column": 5
         },
         "end": {
           "line": 441,
-          "column": 23
+          "column": 40
         }
       },
       "generated": {
@@ -8218,15 +8218,15 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11548,
-        "end_byte": 11575,
+        "start_byte": 11821,
+        "end_byte": 11851,
         "start": {
           "line": 442,
           "column": 5
         },
         "end": {
           "line": 442,
-          "column": 32
+          "column": 35
         }
       },
       "generated": {
@@ -8246,8 +8246,8 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11580,
-        "end_byte": 11613,
+        "start_byte": 11856,
+        "end_byte": 11889,
         "start": {
           "line": 443,
           "column": 5
@@ -8267,22 +8267,22 @@
           "column": 1
         }
       },
-      "node": "expr",
+      "node": "assign",
       "function": "GateConnect6",
       "section": "cgroup/connect6"
     },
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11618,
-        "end_byte": 11645,
+        "start_byte": 11894,
+        "end_byte": 11912,
         "start": {
           "line": 444,
           "column": 5
         },
         "end": {
           "line": 444,
-          "column": 32
+          "column": 23
         }
       },
       "generated": {
@@ -8295,22 +8295,50 @@
           "column": 1
         }
       },
-      "node": "expr",
+      "node": "assign",
       "function": "GateConnect6",
       "section": "cgroup/connect6"
     },
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11692,
-        "end_byte": 11710,
+        "start_byte": 11917,
+        "end_byte": 11944,
+        "start": {
+          "line": 445,
+          "column": 5
+        },
+        "end": {
+          "line": 445,
+          "column": 32
+        }
+      },
+      "generated": {
+        "start": {
+          "line": 783,
+          "column": 1
+        },
+        "end": {
+          "line": 784,
+          "column": 1
+        }
+      },
+      "node": "assign",
+      "function": "GateConnect6",
+      "section": "cgroup/connect6"
+    },
+    {
+      "source": {
+        "file": "programs/mercutio.hzn",
+        "start_byte": 11949,
+        "end_byte": 11982,
         "start": {
           "line": 446,
-          "column": 9
+          "column": 5
         },
         "end": {
           "line": 446,
-          "column": 27
+          "column": 38
         }
       },
       "generated": {
@@ -8323,6 +8351,62 @@
           "column": 1
         }
       },
+      "node": "expr",
+      "function": "GateConnect6",
+      "section": "cgroup/connect6"
+    },
+    {
+      "source": {
+        "file": "programs/mercutio.hzn",
+        "start_byte": 11987,
+        "end_byte": 12014,
+        "start": {
+          "line": 447,
+          "column": 5
+        },
+        "end": {
+          "line": 447,
+          "column": 32
+        }
+      },
+      "generated": {
+        "start": {
+          "line": 785,
+          "column": 1
+        },
+        "end": {
+          "line": 786,
+          "column": 1
+        }
+      },
+      "node": "expr",
+      "function": "GateConnect6",
+      "section": "cgroup/connect6"
+    },
+    {
+      "source": {
+        "file": "programs/mercutio.hzn",
+        "start_byte": 12061,
+        "end_byte": 12079,
+        "start": {
+          "line": 449,
+          "column": 9
+        },
+        "end": {
+          "line": 449,
+          "column": 27
+        }
+      },
+      "generated": {
+        "start": {
+          "line": 787,
+          "column": 1
+        },
+        "end": {
+          "line": 788,
+          "column": 1
+        }
+      },
       "node": "return",
       "function": "GateConnect6",
       "section": "cgroup/connect6"
@@ -8330,24 +8414,24 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11650,
-        "end_byte": 11716,
+        "start_byte": 12019,
+        "end_byte": 12085,
         "start": {
-          "line": 445,
+          "line": 448,
           "column": 5
         },
         "end": {
-          "line": 447,
+          "line": 450,
           "column": 6
         }
       },
       "generated": {
         "start": {
-          "line": 783,
+          "line": 786,
           "column": 1
         },
         "end": {
-          "line": 786,
+          "line": 789,
           "column": 1
         }
       },
@@ -8358,24 +8442,24 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 11721,
-        "end_byte": 11740,
+        "start_byte": 12090,
+        "end_byte": 12109,
         "start": {
-          "line": 448,
+          "line": 451,
           "column": 5
         },
         "end": {
-          "line": 448,
+          "line": 451,
           "column": 24
         }
       },
       "generated": {
         "start": {
-          "line": 786,
+          "line": 789,
           "column": 1
         },
         "end": {
-          "line": 787,
+          "line": 790,
           "column": 1
         }
       },
@@ -8386,14 +8470,14 @@
     {
       "source": {
         "file": "programs/mercutio.hzn",
-        "start_byte": 9642,
-        "end_byte": 11742,
+        "start_byte": 9834,
+        "end_byte": 12111,
         "start": {
           "line": 387,
           "column": 1
         },
         "end": {
-          "line": 449,
+          "line": 452,
           "column": 2
         }
       },
@@ -8403,7 +8487,7 @@
           "column": 1
         },
         "end": {
-          "line": 788,
+          "line": 791,
           "column": 1
         }
       },

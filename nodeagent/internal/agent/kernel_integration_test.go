@@ -76,7 +76,7 @@ func TestKernelLoadsAttachesAndEnforcesStrictExec(t *testing.T) {
 	if !denied {
 		t.Fatalf("strict cgroup executed copied binary; err=%v", err)
 	}
-	deadline := time.After(5 * time.Second)
+	deadline := time.After(500 * time.Millisecond)
 	for {
 		select {
 		case event := <-events.events:
