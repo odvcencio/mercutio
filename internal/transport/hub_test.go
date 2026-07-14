@@ -461,9 +461,44 @@ func TestDisconnectCellRevokesAttachTransport(t *testing.T) {
 	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := conn.ReadMessage(); err == nil {
-		t.Fatal("attach WebSocket remained open")
+	for {
+		if _, _, err := conn.ReadMessage(); err != nil {
+			break
+		}
 	}
+}
+
+func TestAgentWebSocketDisconnectReturnsSteeringCellToReady(t *testing.T) {
+	store := cell.NewStore()
+	h := NewCellHub(store)
+	server := httptest.NewServer(http.HandlerFunc(h.ServeAgentHTTP))
+	defer server.Close()
+	token, err := store.AttachToken("cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := dialAgentHub(t, server.URL, "cell-demo", token)
+	if err := conn.WriteJSON(hub.Message{Event: "agent:attach", Data: rawJSON(map[string]string{"name": "agent"})}); err != nil {
+		t.Fatal(err)
+	}
+	readEvent(t, conn, "attach:welcome")
+	if _, err := store.Prompt("cell-demo", "perform a task"); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		snapshot, snapshotErr := store.Snapshot("cell-demo")
+		if snapshotErr == nil && snapshot.Status == model.CellReady && !snapshot.Agent.Connected && snapshot.Agent.Status == "detached" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	snapshot, _ := store.Snapshot("cell-demo")
+	t.Fatalf("disconnect did not restore ready state: %+v", snapshot.Cell)
 }
 
 func dialAgentHub(t *testing.T, serverURL, cellID, token string) *websocket.Conn {

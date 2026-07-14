@@ -1918,6 +1918,9 @@ func (s *Store) Detach(id, agentID string) (model.CellSnapshot, error) {
 	r.cell.Agent.Connected = false
 	r.cell.Agent.Status = "detached"
 	r.cell.Agent.LastSeen = now
+	if r.cell.Status != model.CellStopped && r.cell.Status != model.CellError {
+		r.cell.Status = model.CellReady
+	}
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
 	s.appendEventLocked(r, model.Event{Kind: model.EventPresence, Source: "control-plane", Action: "agent.detach", Summary: "Agent detached from the cell", Timestamp: now})

@@ -223,6 +223,13 @@ func TestStoreLifecycleAndSharedDocuments(t *testing.T) {
 	if steered.Status != model.CellSteering || steered.Agent.Status != "steering" {
 		t.Fatalf("steered cell = %+v", steered.Cell)
 	}
+	ready, err := store.Detach(created.ID, steered.Agent.ID)
+	if err != nil {
+		t.Fatalf("Detach: %v", err)
+	}
+	if ready.Status != model.CellReady || ready.Agent.Connected || ready.Agent.Status != "detached" {
+		t.Fatalf("detached cell = %+v", ready.Cell)
+	}
 
 	if len(updated.Reviews) == 0 {
 		t.Fatal("edit did not produce an entity review")
