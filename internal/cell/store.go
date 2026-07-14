@@ -553,13 +553,23 @@ func (s *Store) CollectShadowGarbage(now time.Time) int {
 		kept := r.cell.Shadows[:0]
 		for _, shadow := range r.cell.Shadows {
 			agedOut := !shadow.CreatedAt.IsZero() && !shadow.CreatedAt.Add(14*24*time.Hour).After(now)
-			eligible := shadow.Status == "adopted" || shadow.Status == "merged" || (shadow.Status == "discarded" && shadow.Stale) || agedOut
-			if !eligible {
+			reason := ""
+			switch {
+			case shadow.Status == "adopted":
+				reason = "adopted"
+			case shadow.Status == "merged":
+				reason = "merged"
+			case shadow.Status == "discarded" && shadow.Stale:
+				reason = "discarded-past-base"
+			case agedOut:
+				reason = "ttl-expired"
+			}
+			if reason == "" {
 				kept = append(kept, shadow)
 				continue
 			}
 			removed++
-			s.appendEvidenceLocked(r, "shadow-gc-receipt", map[string]string{"shadowID": shadow.ID, "author": shadow.Author, "baseHash": shadow.BaseHash, "status": shadow.Status})
+			s.appendEvidenceLocked(r, "shadow-gc-receipt", map[string]string{"shadowID": shadow.ID, "author": shadow.Author, "baseHash": shadow.BaseHash, "status": shadow.Status, "reason": reason})
 		}
 		r.cell.Shadows = kept
 	}

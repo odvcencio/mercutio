@@ -1,6 +1,7 @@
 package cell
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +64,19 @@ func TestAgentWriteShadowsWhileHumanActiveAndAdoptsWithReceipt(t *testing.T) {
 	}
 	if removed := store.CollectShadowGarbage(time.Now().UTC()); removed != 1 {
 		t.Fatalf("resolved shadow GC removed=%d, want 1", removed)
+	}
+	gcReason := ""
+	for _, record := range store.Evidence("cell-demo") {
+		if record.Kind != "shadow-gc-receipt" {
+			continue
+		}
+		var fields map[string]string
+		if json.Unmarshal(record.Payload, &fields) == nil {
+			gcReason = fields["reason"]
+		}
+	}
+	if gcReason != "adopted" {
+		t.Fatalf("shadow GC receipt reason = %q, want adopted", gcReason)
 	}
 }
 
