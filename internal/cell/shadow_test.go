@@ -26,6 +26,9 @@ func TestMinimalSpliceDoesNotScaleWithWholeFile(t *testing.T) {
 
 func TestAgentWriteShadowsWhileHumanActiveAndAdoptsWithReceipt(t *testing.T) {
 	store := NewStore()
+	if _, err := store.SetWriterActive("cell-demo", "cmd/hello/main.go", "operator", true); err != nil {
+		t.Fatal(err)
+	}
 	human, err := store.ApplyEdit("cell-demo", "cmd/hello/main.go", "package main\n\n// human\n", "operator")
 	if err != nil {
 		t.Fatal(err)
@@ -60,6 +63,48 @@ func TestAgentWriteShadowsWhileHumanActiveAndAdoptsWithReceipt(t *testing.T) {
 	}
 	if removed := store.CollectShadowGarbage(time.Now().UTC()); removed != 1 {
 		t.Fatalf("resolved shadow GC removed=%d, want 1", removed)
+	}
+}
+
+func TestOpenBufferWithoutRecentHumanEditDoesNotRouteAgentToShadow(t *testing.T) {
+	store := NewStore()
+	path := "cmd/hello/main.go"
+	if _, err := store.SetWriterActive("cell-demo", path, "operator", true); err != nil {
+		t.Fatal(err)
+	}
+	agentContent := "package main\n\n// agent live\n"
+	snapshot, err := store.ApplyEdit("cell-demo", path, agentContent, "agent-cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Shadows) != 0 || fileContent(snapshot, path) != agentContent {
+		t.Fatalf("focus-only buffer was treated as active writer: shadows=%+v file=%q", snapshot.Shadows, fileContent(snapshot, path))
+	}
+}
+
+func TestHumanEnteringDuringAgentWriteCreatesShadowAndTakesLiveBuffer(t *testing.T) {
+	store := NewStore()
+	path := "cmd/hello/main.go"
+	base, err := store.File("cell-demo", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentContent := base.Content + "// agent in flight\n"
+	if _, err = store.ApplyEdit("cell-demo", path, agentContent, "agent-cell-demo"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.SetWriterActive("cell-demo", path, "operator", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fileContent(snapshot, path) != base.Content {
+		t.Fatalf("human did not take pre-agent live buffer: %q", fileContent(snapshot, path))
+	}
+	if len(snapshot.Shadows) != 1 || snapshot.Shadows[0].After != agentContent || snapshot.Shadows[0].Before != base.Content {
+		t.Fatalf("agent in-flight set was not preserved as a shadow: %+v", snapshot.Shadows)
+	}
+	if _, err = store.RevertAgentEdit("cell-demo", path, "operator"); err == nil {
+		t.Fatal("taken-over agent change remained independently revertible")
 	}
 }
 

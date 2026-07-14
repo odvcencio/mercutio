@@ -37,8 +37,10 @@ type textDocument struct {
 }
 
 type writerState struct {
-	actor       string
-	activeUntil time.Time
+	actor        string
+	activeUntil  time.Time
+	before       string
+	historyStart int
 }
 
 type editOperation struct {
@@ -59,6 +61,7 @@ type record struct {
 	armToken    string
 	workdir     string
 	writers     map[string]writerState
+	openWriters map[string]map[string]bool
 	history     []editOperation
 }
 
@@ -208,6 +211,7 @@ func (s *Store) newRecordLocked(id, repoURL, branch, profile string, files []mod
 		armToken:    armToken,
 		workdir:     filepath.Join(s.worktreeRoot, id),
 		writers:     make(map[string]writerState),
+		openWriters: make(map[string]map[string]bool),
 	}
 	for i := range files {
 		if files[i].Language == "" {
@@ -324,6 +328,7 @@ func (s *Store) Destroy(id string) (model.CellSnapshot, error) {
 	r.docs = nil
 	r.history = nil
 	r.writers = nil
+	r.openWriters = nil
 	r.attachToken = ""
 	r.armToken = ""
 	_ = s.persistLocked()
@@ -337,11 +342,31 @@ func (s *Store) SetWriterActive(id, path, actor string, active bool) (model.Cell
 	if !ok {
 		return model.CellSnapshot{}, fmt.Errorf("cell %q not found", id)
 	}
-	if !active {
-		delete(r.writers, path)
-	} else {
-		r.writers[path] = writerState{actor: defaultValue(actor, "operator"), activeUntil: time.Now().UTC().Add(90 * time.Second)}
+	path = strings.TrimSpace(path)
+	actor = defaultValue(actor, "operator")
+	if path == "" {
+		return model.CellSnapshot{}, fmt.Errorf("file path is required")
 	}
+	if !active {
+		if actors := r.openWriters[path]; actors != nil {
+			delete(actors, actor)
+			if len(actors) == 0 {
+				delete(r.openWriters, path)
+			}
+		}
+		return snapshotLocked(r), nil
+	}
+	if !isAgentActor(actor) {
+		if err := s.takeOverAgentWriteLocked(id, r, path, actor); err != nil {
+			return model.CellSnapshot{}, err
+		}
+	}
+	actors := r.openWriters[path]
+	if actors == nil {
+		actors = make(map[string]bool)
+		r.openWriters[path] = actors
+	}
+	actors[actor] = true
 	return snapshotLocked(r), nil
 }
 
@@ -808,8 +833,8 @@ func (s *Store) applyEditLocked(id string, r *record, path, content, actor strin
 	actor = defaultValue(actor, "operator")
 	current := r.cell.Files[idx].Content
 	writer := r.writers[path]
-	if isAgentActor(actor) && writer.actor != "" && !isAgentActor(writer.actor) && time.Now().UTC().Before(writer.activeUntil) {
-		now := time.Now().UTC()
+	now := time.Now().UTC()
+	if isAgentActor(actor) && humanWriterActive(r, path, writer, now) {
 		base := baselineContent(r.baseline, path)
 		shadow := model.ShadowRevision{ID: s.nextShadowIDLocked(id), Path: path, Author: actor, Base: base, Before: current, After: content, BaseHash: contentHash(base), Reason: "active human writer", Status: "open", CreatedAt: now}
 		r.cell.Shadows = append(r.cell.Shadows, shadow)
@@ -822,11 +847,11 @@ func (s *Store) applyEditLocked(id string, r *record, path, content, actor strin
 	}
 	// A human taking over an agent-active buffer preserves the in-flight agent
 	// state before applying the human edit.
-	if !isAgentActor(actor) && isAgentActor(writer.actor) && time.Now().UTC().Before(writer.activeUntil) && current != content {
-		base := baselineContent(r.baseline, path)
-		shadow := model.ShadowRevision{ID: s.nextShadowIDLocked(id), Path: path, Author: writer.actor, Base: base, Before: content, After: current, BaseHash: contentHash(base), Reason: "human takeover of active agent writer", Status: "open", CreatedAt: time.Now().UTC()}
-		r.cell.Shadows = append(r.cell.Shadows, shadow)
-		s.appendEvidenceLocked(r, "shadow-create", map[string]string{"shadowID": shadow.ID, "author": shadow.Author, "baseHash": shadow.BaseHash, "reason": shadow.Reason})
+	if !isAgentActor(actor) && agentWriteActive(writer, now) && current != content {
+		if err := s.takeOverAgentWriteLocked(id, r, path, actor); err != nil {
+			return model.CellSnapshot{}, err
+		}
+		current = writer.before
 	}
 	inserted, deleted, err := spliceTextMinimalOps(doc, content)
 	if err != nil {
@@ -839,13 +864,82 @@ func (s *Store) applyEditLocked(id string, r *record, path, content, actor strin
 	}
 	r.cell.UpdatedAt = time.Now().UTC()
 	r.cell.Revision++
+	historyStart := len(r.history)
+	if isAgentActor(actor) && isAgentActor(writer.actor) && writer.actor == actor && agentWriteActive(writer, now) {
+		historyStart = writer.historyStart
+	}
 	if len(inserted) > 0 || len(deleted) > 0 {
 		r.history = append(r.history, editOperation{Actor: actor, Path: path, Inserted: inserted, Deleted: deleted, CreatedAt: r.cell.UpdatedAt})
 	}
-	r.writers[path] = writerState{actor: actor, activeUntil: r.cell.UpdatedAt.Add(90 * time.Second)}
+	nextWriter := writerState{actor: actor, activeUntil: r.cell.UpdatedAt.Add(90 * time.Second), historyStart: historyStart}
+	if isAgentActor(actor) {
+		nextWriter.before = current
+		if isAgentActor(writer.actor) && writer.actor == actor && agentWriteActive(writer, now) {
+			nextWriter.before = writer.before
+		}
+	}
+	r.writers[path] = nextWriter
 	s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: actor, Actor: actor, Action: "buffer.update", Summary: fmt.Sprintf("%s edited %s", actor, path), Detail: "The shared document revision was committed through the cell document.", Danger: "medium", Authenticated: strings.HasPrefix(actor, "operator-") || actor == "operator", Timestamp: r.cell.UpdatedAt})
 	r.cell.Reviews = s.generateReviews(r)
 	return snapshotLocked(r), nil
+}
+
+func humanWriterActive(r *record, path string, writer writerState, now time.Time) bool {
+	return writer.actor != "" && !isAgentActor(writer.actor) && now.Before(writer.activeUntil) && r.openWriters[path][writer.actor]
+}
+
+func agentWriteActive(writer writerState, now time.Time) bool {
+	return writer.actor != "" && isAgentActor(writer.actor) && now.Before(writer.activeUntil)
+}
+
+func (s *Store) takeOverAgentWriteLocked(id string, r *record, path, actor string) error {
+	writer := r.writers[path]
+	now := time.Now().UTC()
+	if !agentWriteActive(writer, now) {
+		return nil
+	}
+	index := -1
+	for i := range r.cell.Files {
+		if r.cell.Files[i].Path == path {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return fmt.Errorf("document %q is unavailable", path)
+	}
+	current := r.cell.Files[index].Content
+	if current == writer.before {
+		delete(r.writers, path)
+		return nil
+	}
+	base := baselineContent(r.baseline, path)
+	shadow := model.ShadowRevision{ID: s.nextShadowIDLocked(id), Path: path, Author: writer.actor, Base: base, Before: writer.before, After: current, BaseHash: contentHash(base), Reason: "human takeover of active agent writer", Status: "open", CreatedAt: now}
+	r.cell.Shadows = append(r.cell.Shadows, shadow)
+	doc, ok := r.docs[path]
+	if !ok {
+		return fmt.Errorf("document %q is unavailable", path)
+	}
+	if _, _, err := spliceTextMinimalOps(doc, writer.before); err != nil {
+		return fmt.Errorf("restore pre-agent buffer: %w", err)
+	}
+	if err := syncWorktreeFile(s.worktreeRoot, id, path, writer.before); err != nil {
+		return fmt.Errorf("restore pre-agent worktree: %w", err)
+	}
+	r.cell.Files[index].Content = writer.before
+	r.cell.Files[index].Modified = true
+	for i := writer.historyStart; i < len(r.history); i++ {
+		if r.history[i].Path == path && r.history[i].Actor == writer.actor {
+			r.history[i].Reverted = true
+		}
+	}
+	delete(r.writers, path)
+	r.cell.UpdatedAt = now
+	r.cell.Revision++
+	s.appendEvidenceLocked(r, "shadow-create", map[string]string{"shadowID": shadow.ID, "author": shadow.Author, "baseHash": shadow.BaseHash, "reason": shadow.Reason})
+	s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: defaultValue(actor, "operator"), Actor: defaultValue(actor, "operator"), Action: "shadow.takeover", Summary: "Human took the live buffer; the in-flight agent change became a Shadow Revision", Detail: "path=" + path + "; shadow=" + shadow.ID, Danger: "medium", Authenticated: true, Timestamp: now})
+	r.cell.Reviews = s.generateReviews(r)
+	return nil
 }
 
 func browserContentHash(content string) uint32 {
