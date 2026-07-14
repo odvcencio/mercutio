@@ -9,6 +9,7 @@ import (
 
 	"m31labs.dev/gosx"
 	"m31labs.dev/mercutio/internal/model"
+	"m31labs.dev/mercutio/internal/policy"
 )
 
 func TestPageUsesGoSXActionsWithoutApplicationScripts(t *testing.T) {
@@ -39,6 +40,28 @@ func TestPageUsesGoSXActionsWithoutApplicationScripts(t *testing.T) {
 	for _, forbidden := range []string{"app.js", "login.js", "initial-state"} {
 		if strings.Contains(html, forbidden) {
 			t.Fatalf("viewport contains application script contract %q", forbidden)
+		}
+	}
+}
+
+func TestPolicyEditorRequiresPreviewBeforeApplyAndRendersBlastRadius(t *testing.T) {
+	state := model.State{Cells: []model.CellSnapshot{{Cell: model.Cell{
+		ID: "cell-policy", Status: model.CellReady, SandboxProfile: "standard",
+		Files: []model.File{{Path: "policy/sandbox.yaml", Language: "yaml", Content: "profile: strict\n"}},
+	}}}}
+	without := gosx.RenderHTML(Page(state, "cell-policy", "policy/sandbox.yaml", "csrf-token"))
+	if !strings.Contains(without, `action="/gosx/action/preview-policy"`) || strings.Contains(without, `action="/gosx/action/apply-policy"`) {
+		t.Fatalf("policy editor bypasses preview: %s", without)
+	}
+	preview := policy.PreviewResult{
+		Before: policy.Manifest{Profile: "standard"}, After: policy.Manifest{Profile: "strict"},
+		Classes: []policy.ClassImpact{{Class: "standard", Narrows: 2, Rules: []policy.RuleImpact{{Action: "net", Domain: "dependency", Operation: "connect", BeforeVerdict: "allow", AfterVerdict: "deny", Direction: "narrows"}}}},
+		Cells:   []policy.CellImpact{{CellID: "cell-policy", RequiresRearm: true, Narrows: 1, Replay: []policy.ReplayImpact{{EventID: "k1", Action: "net/dependency/connect", BeforeVerdict: "allow", AfterVerdict: "deny", Direction: "narrows"}}}},
+	}
+	with := gosx.RenderHTML(PageWithPolicyPreview(state, "cell-policy", "policy/sandbox.yaml", "csrf-token", &preview))
+	for _, want := range []string{`aria-label="Policy impact preview"`, `static EPS diff + recorded kernel replay`, `0 widens`, `2 narrows`, `cell-policy`, `verdict flips`, `action="/gosx/action/apply-policy"`, `Apply reviewed policy &amp; re-arm`} {
+		if !strings.Contains(with, want) {
+			t.Fatalf("policy preview missing %q in %s", want, with)
 		}
 	}
 }

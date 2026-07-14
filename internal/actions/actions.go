@@ -23,6 +23,7 @@ func New(store *cell.Store, hub *transport.CellHub) *action.Registry {
 	registry.Register("prompt", prompt(store, hub))
 	registry.Register("destroy-cell", destroyCell(store, hub))
 	registry.Register("approve-review", approveReview(store, hub))
+	registry.Register("preview-policy", previewPolicy(store, hub))
 	registry.Register("apply-policy", applyPolicy(store, hub))
 	registry.Register("approve-secret-grant", approveSecretGrant(store, hub))
 	registry.Register("acknowledge-review", acknowledgeReview(store, hub))
@@ -32,6 +33,23 @@ func New(store *cell.Store, hub *transport.CellHub) *action.Registry {
 	registry.Register("discard-shadow", shadowAction(store, hub, "discard"))
 	registry.Register("decide-action", decideAction(store, hub))
 	return registry
+}
+
+func previewPolicy(store *cell.Store, hub *transport.CellHub) action.Handler {
+	return func(ctx *action.Context) error {
+		cellID, path := identity(ctx)
+		content := ctx.FormData["content"]
+		if _, err := store.PolicyPreview(cellID, content); err != nil {
+			return action.Validation(err.Error(), map[string]string{"content": err.Error()}, ctx.FormData)
+		}
+		snapshot, err := store.ApplyEdit(cellID, path, content, "operator")
+		if err != nil {
+			return action.Validation(err.Error(), map[string]string{"content": err.Error()}, ctx.FormData)
+		}
+		hub.BroadcastCell(snapshot)
+		ctx.Redirect(viewPath(cellID, path) + "&policyPreview=1")
+		return nil
+	}
 }
 
 func decideAction(store *cell.Store, hub *transport.CellHub) action.Handler {
@@ -160,7 +178,11 @@ func approvedSecretRequest(requests []model.SecretGrantRequest, id string) (mode
 func applyPolicy(store *cell.Store, hub *transport.CellHub) action.Handler {
 	return func(ctx *action.Context) error {
 		cellID, path := identity(ctx)
-		snapshot, _, err := store.ApplyPolicy(ctx.Request.Context(), cellID, ctx.FormData["content"], "operator")
+		capability, err := store.MintOperatorCapability(cellID, "operator")
+		if err != nil {
+			return action.Error(403, err.Error())
+		}
+		snapshot, _, err := store.ApplyPolicyAuthorized(ctx.Request.Context(), cellID, ctx.FormData["content"], "operator", capability)
 		if err != nil {
 			return action.Validation(err.Error(), map[string]string{"content": err.Error()}, ctx.FormData)
 		}

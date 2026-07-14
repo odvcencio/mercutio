@@ -23,6 +23,7 @@ import (
 	"m31labs.dev/mercutio/internal/auth"
 	"m31labs.dev/mercutio/internal/cell"
 	"m31labs.dev/mercutio/internal/evidence"
+	"m31labs.dev/mercutio/internal/policy"
 	"m31labs.dev/mercutio/internal/review"
 	"m31labs.dev/mercutio/internal/sandbox"
 	secretstore "m31labs.dev/mercutio/internal/secrets"
@@ -105,7 +106,17 @@ func main() {
 	app.SetLayout(view.Layout)
 	app.Page("GET /login", func(ctx *server.Context) gosx.Node { return view.LoginPage(authn.CSRFToken(ctx.Request)) })
 	app.HandlePage(server.PageRoute{Pattern: "GET /", Middleware: []server.Middleware{server.Middleware(authn.Require)}, Handler: func(ctx *server.Context) gosx.Node {
-		return view.Page(store.State(cellHub.ClientCount()), ctx.Request.URL.Query().Get("cell"), ctx.Request.URL.Query().Get("file"), authn.CSRFToken(ctx.Request))
+		cellID := ctx.Request.URL.Query().Get("cell")
+		path := ctx.Request.URL.Query().Get("file")
+		var preview *policy.PreviewResult
+		if path == "policy/sandbox.yaml" && ctx.Request.URL.Query().Get("policyPreview") == "1" {
+			if file, fileErr := store.File(cellID, path); fileErr == nil {
+				if result, previewErr := store.PolicyPreview(cellID, file.Content); previewErr == nil {
+					preview = &result
+				}
+			}
+		}
+		return view.PageWithPolicyPreview(store.State(cellHub.ClientCount()), cellID, path, authn.CSRFToken(ctx.Request), preview)
 	}})
 	app.Mount("POST /gosx/action/{name}", authn.Require(authn.ProtectBrowser(browserActions)))
 

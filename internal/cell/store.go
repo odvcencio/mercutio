@@ -1987,18 +1987,39 @@ func (s *Store) PolicyPreview(id, content string) (policy.PreviewResult, error) 
 		Profile: r.cell.Capabilities.Profile, ProfileDigest: r.cell.Capabilities.ProfileDigest, Filesystem: r.cell.Capabilities.Filesystem,
 		Exec: append([]string(nil), r.cell.Capabilities.Exec...), Egress: append([]string(nil), r.cell.Capabilities.Egress...), Programs: append([]string(nil), r.cell.Capabilities.Programs...), Danger: r.cell.Capabilities.Danger, RecordedOnly: r.cell.Capabilities.RecordedOnly,
 	}
-	s.mu.RUnlock()
-	preview, err := policy.Preview(before, content)
-	if err == nil && len(preview.Changes) > 0 {
-		preview.Cells = []policy.CellImpact{{CellID: id, BeforeClass: before.Profile, AfterClass: preview.After.Profile, RequiresRearm: true}}
+	replay := policy.ReplayCell{CellID: id, Profile: before.Profile, Worktree: r.workdir}
+	for _, event := range r.events {
+		if event.Kind != model.EventKernel {
+			continue
+		}
+		replay.Events = append(replay.Events, policy.ReplayEvent{ID: event.ID, Action: event.Action, Path: event.Path, Argv: event.Argv, Destination: event.Destination})
 	}
-	return preview, err
+	s.mu.RUnlock()
+	return policy.PreviewForCells(before, content, []policy.ReplayCell{replay})
 }
 
 // ApplyPolicy replays the governed decision and atomically re-arms enforcement
 // on the live sandbox. The new manifest is published only after the runtime
 // confirms the policy selector changed; the pod and agent are not restarted.
 func (s *Store) ApplyPolicy(ctx context.Context, id, content, actor string) (model.CellSnapshot, policy.PreviewResult, error) {
+	return s.applyPolicy(ctx, id, content, actor)
+}
+
+// ApplyPolicyAuthorized is the external mutation boundary. Authentication
+// identifies the operator; this fresh cell-scoped capability proves that the
+// caller is authorized for the distinct policy-apply operation.
+func (s *Store) ApplyPolicyAuthorized(ctx context.Context, id, content, actor, token string) (model.CellSnapshot, policy.PreviewResult, error) {
+	claims, err := s.VerifyCapability(token, id, "policy:apply")
+	if err != nil || claims.Role != "operator" {
+		return model.CellSnapshot{}, policy.PreviewResult{}, fmt.Errorf("fresh operator policy:apply capability required")
+	}
+	if strings.TrimSpace(actor) == "" {
+		actor = claims.ActorID
+	}
+	return s.applyPolicy(ctx, id, content, actor)
+}
+
+func (s *Store) applyPolicy(ctx context.Context, id, content, actor string) (model.CellSnapshot, policy.PreviewResult, error) {
 	preview, err := s.PolicyPreview(id, content)
 	if err != nil {
 		return model.CellSnapshot{}, policy.PreviewResult{}, err

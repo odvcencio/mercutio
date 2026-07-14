@@ -13,6 +13,7 @@ import (
 	gosxeditor "m31labs.dev/gosx/editor"
 	"m31labs.dev/gosx/server"
 	"m31labs.dev/mercutio/internal/model"
+	"m31labs.dev/mercutio/internal/policy"
 )
 
 const actionBase = "/gosx/action/"
@@ -20,13 +21,17 @@ const actionBase = "/gosx/action/"
 // Page renders the operator viewport entirely from GoSX nodes. Browser
 // mutations use GoSX server actions and retain native HTML form behavior.
 func Page(state model.State, selectedCellID, selectedPath, csrfToken string) gosx.Node {
+	return PageWithPolicyPreview(state, selectedCellID, selectedPath, csrfToken, nil)
+}
+
+func PageWithPolicyPreview(state model.State, selectedCellID, selectedPath, csrfToken string, preview *policy.PreviewResult) gosx.Node {
 	cell := activeCell(state, selectedCellID)
 	file := activeFile(cell, selectedPath)
 	return gosx.El("main", gosx.Attrs(gosx.Attr("class", "app-shell")),
 		renderTopbar(state.Connected),
 		gosx.El("section", gosx.Attrs(gosx.Attr("class", "workspace")),
 			renderSidebar(state, cell, csrfToken),
-			renderEditor(cell, file, csrfToken),
+			renderEditor(cell, file, csrfToken, preview),
 			renderObservability(cell, file, csrfToken),
 		),
 		renderOrrery(state),
@@ -99,7 +104,7 @@ func renderSidebar(state model.State, selected *model.CellSnapshot, csrfToken st
 	)
 }
 
-func renderEditor(cell *model.CellSnapshot, file *model.File, csrfToken string) gosx.Node {
+func renderEditor(cell *model.CellSnapshot, file *model.File, csrfToken string, policyPreview *policy.PreviewResult) gosx.Node {
 	if cell == nil {
 		return gosx.El("section", gosx.Attrs(gosx.Attr("class", "editor-column")), gosx.El("div", gosx.Attrs(gosx.Attr("class", "empty-feed")), gosx.Text("Create or select a cell to begin.")))
 	}
@@ -129,22 +134,50 @@ func renderEditor(cell *model.CellSnapshot, file *model.File, csrfToken string) 
 		Collaboration:    &gosxeditor.Collaboration{HubURL: "/gosx/hub/cells?cellID=" + url.QueryEscape(cell.ID), CapabilityURL: "/api/cells/" + url.PathEscape(cell.ID) + "/capability", CellID: cell.ID, Path: file.Path, BinarySplices: true},
 		CodeIntelligence: editorIntelligence(cell.ID, file.Language),
 	})
+	mainChildren := []gosx.Node{
+		gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-meta")), gosx.El("div", gosx.El("span", gosx.Attrs(gosx.Attr("class", "file-icon")), gosx.Text("▧")), gosx.El("strong", gosx.Text(file.Path)), gosx.El("span", gosx.Attrs(gosx.Attr("class", "muted")), gosx.Text(file.Language)))),
+		codeEditor.Render(),
+		gosx.El("div", gosx.Attrs(gosx.Attr("class", "buffer-actions")),
+			actionForm(csrfToken, "undo-edit", "buffer-action", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Undo my edit"))),
+			actionForm(csrfToken, "revert-agent-edit", "buffer-action", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Revert agent edit"))),
+			actionForm(csrfToken, "delete-file", "delete-file-form", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("class", "delete-button"), gosx.Attr("type", "submit")), gosx.Text("Delete file"))),
+		),
+	}
+	if file.Path == "policy/sandbox.yaml" && policyPreview != nil {
+		mainChildren = append(mainChildren, renderPolicyImpact(cell.ID, file, *policyPreview, csrfToken))
+	}
+	mainChildren = append(mainChildren, actionForm(csrfToken, "prompt", "prompt-bar", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("div", gosx.Attrs(gosx.Attr("class", "prompt-icon")), gosx.Text("↗")), gosx.El("input", gosx.Attrs(gosx.Attr("name", "prompt"), gosx.Attr("placeholder", "Steer the agent in this cell…"), gosx.Attr("autocomplete", "off"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("class", "prompt-button"), gosx.Attr("type", "submit")), gosx.Text("Send prompt"))))
 	return gosx.El("section", gosx.Attrs(gosx.Attr("class", "editor-column"), gosx.Attr("data-gosx-code-surface", "true"), gosx.Attr("data-language", file.Language)),
 		gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-toolbar")), gosx.El("div", gosx.Attrs(gosx.Attr("class", "file-tabs")), gosx.Fragment(tabs...)), gosx.El("span", gosx.Attrs(gosx.Attr("class", "revision")), gosx.Text(fmt.Sprintf("rev %d", cell.Revision)))),
 		gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-workbench")),
 			renderFileTree(cell, file.Path),
-			gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-main")),
-				gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-meta")), gosx.El("div", gosx.El("span", gosx.Attrs(gosx.Attr("class", "file-icon")), gosx.Text("▧")), gosx.El("strong", gosx.Text(file.Path)), gosx.El("span", gosx.Attrs(gosx.Attr("class", "muted")), gosx.Text(file.Language)))),
-				codeEditor.Render(),
-				gosx.El("div", gosx.Attrs(gosx.Attr("class", "buffer-actions")),
-					actionForm(csrfToken, "undo-edit", "buffer-action", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Undo my edit"))),
-					actionForm(csrfToken, "revert-agent-edit", "buffer-action", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Revert agent edit"))),
-					actionForm(csrfToken, "delete-file", "delete-file-form", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("class", "delete-button"), gosx.Attr("type", "submit")), gosx.Text("Delete file"))),
-				),
-				actionForm(csrfToken, "prompt", "prompt-bar", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("div", gosx.Attrs(gosx.Attr("class", "prompt-icon")), gosx.Text("↗")), gosx.El("input", gosx.Attrs(gosx.Attr("name", "prompt"), gosx.Attr("placeholder", "Steer the agent in this cell…"), gosx.Attr("autocomplete", "off"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("class", "prompt-button"), gosx.Attr("type", "submit")), gosx.Text("Send prompt"))),
-			),
+			gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-main")), gosx.Fragment(mainChildren...)),
 		),
 	)
+}
+
+func renderPolicyImpact(cellID string, file *model.File, preview policy.PreviewResult, csrfToken string) gosx.Node {
+	children := []gosx.Node{gosx.El("div", gosx.Attrs(gosx.Attr("class", "section-heading")), gosx.Text("POLICY IMPACT PREVIEW")), gosx.El("p", gosx.Text(preview.Before.Profile+" → "+preview.After.Profile+" · static EPS diff + recorded kernel replay"))}
+	for _, class := range preview.Classes {
+		children = append(children, gosx.El("div", gosx.Attrs(gosx.Attr("class", "policy-class-impact")),
+			gosx.El("strong", gosx.Text("class "+class.Class)),
+			gosx.El("span", gosx.Text(fmt.Sprintf("%d widens · %d narrows", class.Widens, class.Narrows))),
+		))
+		for _, rule := range class.Rules {
+			children = append(children, gosx.El("div", gosx.Attrs(gosx.Attr("class", "policy-rule-impact"), gosx.Attr("data-direction", rule.Direction)), gosx.Text(fmt.Sprintf("%s · %s/%s/%s · %s → %s", strings.ToUpper(rule.Direction), rule.Action, rule.Domain, rule.Operation, rule.BeforeVerdict, rule.AfterVerdict))))
+		}
+	}
+	for _, impact := range preview.Cells {
+		children = append(children, gosx.El("div", gosx.Attrs(gosx.Attr("class", "policy-cell-impact")),
+			gosx.El("strong", gosx.Text(impact.CellID)),
+			gosx.El("span", gosx.Text(fmt.Sprintf(" replay: %d widens · %d narrows · %d verdict flips", impact.Widens, impact.Narrows, len(impact.Replay)))),
+		))
+		for _, flip := range impact.Replay {
+			children = append(children, gosx.El("div", gosx.Attrs(gosx.Attr("class", "policy-replay-impact"), gosx.Attr("data-direction", flip.Direction)), gosx.Text(fmt.Sprintf("%s · %s · %s → %s", strings.ToUpper(flip.Direction), flip.Action, flip.BeforeVerdict, flip.AfterVerdict))))
+		}
+	}
+	children = append(children, actionForm(csrfToken, "apply-policy", "apply-policy", hidden("cellID", cellID), hidden("path", file.Path), hidden("content", file.Content), gosx.El("button", gosx.Attrs(gosx.Attr("class", "approve-button"), gosx.Attr("type", "submit")), gosx.Text("Apply reviewed policy & re-arm"))))
+	return gosx.El("section", gosx.Attrs(gosx.Attr("class", "policy-impact"), gosx.Attr("aria-label", "Policy impact preview")), gosx.Fragment(children...))
 }
 
 type fileTreeNode struct {
@@ -244,13 +277,13 @@ func editorLanguage(language string) gosxeditor.Lang {
 
 func editorAction(path string) string {
 	if path == "policy/sandbox.yaml" {
-		return "apply-policy"
+		return "preview-policy"
 	}
 	return "edit-file"
 }
 func editorSubmitLabel(path string) string {
 	if path == "policy/sandbox.yaml" {
-		return "Apply policy & re-arm"
+		return "Preview policy impact"
 	}
 	return "Save buffer"
 }

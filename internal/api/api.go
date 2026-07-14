@@ -820,14 +820,18 @@ func (h *Handler) PolicyApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Content string `json:"content"`
-		Actor   string `json:"actor"`
+		Content    string `json:"content"`
+		Actor      string `json:"actor"`
+		Capability string `json:"capability"`
 	}
 	if err = decodeJSON(r, &input); err != nil {
 		errorJSON(w, http.StatusBadRequest, err)
 		return
 	}
-	snapshot, preview, err := h.store.ApplyPolicy(r.Context(), id, input.Content, input.Actor)
+	if input.Capability == "" {
+		input.Capability = r.Header.Get("X-Mercutio-Capability")
+	}
+	snapshot, preview, err := h.store.ApplyPolicyAuthorized(r.Context(), id, input.Content, input.Actor, input.Capability)
 	if err != nil {
 		errorJSON(w, http.StatusBadRequest, err)
 		return

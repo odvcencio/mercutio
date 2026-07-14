@@ -51,6 +51,33 @@ func TestBrowserActionsCreateAndEditWithoutJSONClient(t *testing.T) {
 	}
 }
 
+func TestBrowserPolicyChangeIsPreviewThenCapabilityAuthorizedApply(t *testing.T) {
+	store := cell.NewStore()
+	registry := New(store, transport.NewCellHub(store))
+	previewed := httptest.NewRecorder()
+	registry.ServeHTTP(previewed, formRequest("/gosx/action/preview-policy", url.Values{
+		"cellID": {"cell-demo"}, "path": {"policy/sandbox.yaml"}, "content": {"profile: strict\n"},
+	}))
+	if previewed.Code != http.StatusSeeOther || !strings.Contains(previewed.Header().Get("Location"), "policyPreview=1") {
+		t.Fatalf("preview=%d location=%q body=%s", previewed.Code, previewed.Header().Get("Location"), previewed.Body.String())
+	}
+	snapshot, _ := store.Snapshot("cell-demo")
+	if snapshot.SandboxProfile != "standard" {
+		t.Fatalf("preview mutated enforcement profile: %s", snapshot.SandboxProfile)
+	}
+	applied := httptest.NewRecorder()
+	registry.ServeHTTP(applied, formRequest("/gosx/action/apply-policy", url.Values{
+		"cellID": {"cell-demo"}, "path": {"policy/sandbox.yaml"}, "content": {"profile: strict\n"},
+	}))
+	if applied.Code != http.StatusSeeOther {
+		t.Fatalf("apply=%d body=%s", applied.Code, applied.Body.String())
+	}
+	snapshot, _ = store.Snapshot("cell-demo")
+	if snapshot.SandboxProfile != "strict" {
+		t.Fatalf("authorized apply profile=%s", snapshot.SandboxProfile)
+	}
+}
+
 func formRequest(path string, values url.Values) *http.Request {
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(values.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

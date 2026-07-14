@@ -139,6 +139,28 @@ func TestCreateAndEditAPI(t *testing.T) {
 	}
 }
 
+func TestPolicyApplyAPIRequiresCellScopedCapability(t *testing.T) {
+	store := cell.NewStore()
+	handler := New(store, transport.NewCellHub(store))
+	request := httptest.NewRequest(http.MethodPost, "/api/cells/cell-demo/policy/apply", strings.NewReader(`{"content":"profile: strict\n","actor":"operator"}`))
+	response := httptest.NewRecorder()
+	handler.PolicyApply(response, request)
+	if response.Code == http.StatusOK || !strings.Contains(response.Body.String(), "policy:apply capability required") {
+		t.Fatalf("uncapable apply=%d %s", response.Code, response.Body.String())
+	}
+	token, err := store.MintOperatorCapability("cell-demo", "operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/cells/cell-demo/policy/apply", strings.NewReader(`{"content":"profile: strict\n","actor":"operator"}`))
+	request.Header.Set("X-Mercutio-Capability", token)
+	response = httptest.NewRecorder()
+	handler.PolicyApply(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("capable apply=%d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestTier1ProxyInjectsCredentialOnlyAtExactHTTPSDestination(t *testing.T) {
 	var gotAuthorization, gotCookie string
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

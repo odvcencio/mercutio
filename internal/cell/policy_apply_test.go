@@ -66,3 +66,21 @@ func TestApplyPolicyRearmsBeforePublishingManifest(t *testing.T) {
 		}
 	}
 }
+
+func TestExternalPolicyApplyRequiresPolicyCapability(t *testing.T) {
+	store := NewStore()
+	if _, _, err := store.ApplyPolicyAuthorized(context.Background(), "cell-demo", "profile: strict\n", "operator", ""); err == nil {
+		t.Fatal("policy apply accepted without policy:apply capability")
+	}
+	token, err := store.MintOperatorCapability("cell-demo", "operator-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, _, err := store.ApplyPolicyAuthorized(context.Background(), "cell-demo", "profile: strict\n", "", token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.SandboxProfile != "strict" {
+		t.Fatalf("profile=%q", snapshot.SandboxProfile)
+	}
+}
