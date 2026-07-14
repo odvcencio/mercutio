@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 	"m31labs.dev/gosx/hub"
 	"m31labs.dev/mercutio/internal/cell"
+	"m31labs.dev/mercutio/internal/divergence"
 	"m31labs.dev/mercutio/internal/model"
 	"m31labs.dev/mercutio/internal/review"
 )
@@ -220,6 +221,53 @@ func TestAgentOutputIsRedactedAndRecordedAsIntent(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("agent output was not recorded")
+}
+
+func TestAgentTraceCannotSpoofOperatorEvidence(t *testing.T) {
+	store := cell.NewStore()
+	h := NewCellHub(store)
+	server := httptest.NewServer(http.HandlerFunc(h.ServeAgentHTTP))
+	defer server.Close()
+	token, err := store.AttachToken("cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn := dialAgentHub(t, server.URL, "cell-demo", token)
+	defer conn.Close()
+	if err := conn.WriteJSON(hub.Message{Event: "agent:attach", Data: rawJSON(map[string]string{"name": "agent"})}); err != nil {
+		t.Fatal(err)
+	}
+	readEvent(t, conn, "attach:welcome")
+	secret := "ghp_abcdefghijklmnopqrstuvwxyz"
+	spoof := model.Event{TraceID: "trace-spoof", Kind: model.EventKernel, Source: "operator", Actor: "operator", Action: "file.write", Summary: "claimed", Detail: secret, NodeID: "forged-node", CgroupID: 99, Authenticated: true, Evidence: "kernel"}
+	if err := conn.WriteJSON(hub.Message{Event: "agent:trace", Data: rawJSON(spoof)}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		snapshot, snapshotErr := store.Snapshot("cell-demo")
+		if snapshotErr != nil {
+			t.Fatal(snapshotErr)
+		}
+		for _, event := range snapshot.Events {
+			if event.TraceID != spoof.TraceID {
+				continue
+			}
+			if event.Kind != model.EventIntent || event.Source != "agent-cell-demo" || event.Actor != "agent-cell-demo" || event.Authenticated || event.NodeID != "" || event.CgroupID != 0 || event.Evidence != "agent-reported" || strings.Contains(event.Detail, secret) {
+				t.Fatalf("agent spoof survived sanitization: %+v", event)
+			}
+			kernel := model.Event{TraceID: spoof.TraceID, Kind: model.EventKernel, Source: "kernel", Actor: "operator", Action: "file.write", Timestamp: event.Timestamp.Add(time.Millisecond)}
+			divergences := divergence.Evaluate([]model.Event{event, kernel}, divergence.Options{CellID: "cell-demo", EvidenceHealthy: true})
+			for _, record := range divergences {
+				if record.RuleID == "D9" {
+					return
+				}
+			}
+			t.Fatal("spoofed agent trace suppressed operator-attribution mismatch")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("sanitized agent trace was not recorded")
 }
 
 func TestAgentIdleStatusLeavesCellIdleNotFailed(t *testing.T) {

@@ -216,6 +216,21 @@ func NewCellHub(store *cell.Store) *CellHub {
 		}
 		event.Kind = model.EventIntent
 		event.Source = session.AgentID
+		event.Actor = session.AgentID
+		event.Authenticated = false
+		event.Summary = secrets.RedactText(event.Summary)
+		event.Detail = secrets.RedactText(event.Detail)
+		event.Path = secrets.RedactText(event.Path)
+		event.Argv = secrets.RedactText(event.Argv)
+		event.Destination = secrets.RedactText(event.Destination)
+		event.ProgramDanger = model.DangerAxes{}
+		event.NodeID = ""
+		event.CPU = 0
+		event.CgroupID = 0
+		event.KernelSeq = 0
+		event.BatchSeq = 0
+		event.Drops = 0
+		event.Evidence = "agent-reported"
 		if snapshot, err := store.RecordEvent(session.CellID, event); err == nil {
 			h.BroadcastCell(snapshot)
 		}

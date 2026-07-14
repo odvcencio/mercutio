@@ -827,7 +827,7 @@ func (s *Store) ApplyDiskEdit(id, path, base, content, actor string) (model.Cell
 		r.cell.Shadows = append(r.cell.Shadows, shadow)
 		r.cell.UpdatedAt, r.cell.Revision = now, r.cell.Revision+1
 		s.appendEvidenceLocked(r, "shadow-create", map[string]string{"shadowID": shadow.ID, "author": shadow.Author, "baseHash": shadow.BaseHash, "reason": shadow.Reason})
-		s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: shadow.Author, Actor: shadow.Author, Action: "shadow.create", Summary: "Uncertain disk change preserved as a Shadow Revision", Detail: "path=" + path + "; shadow=" + shadow.ID, Danger: "medium", Authenticated: true, Timestamp: now})
+		s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: shadow.Author, Actor: shadow.Author, Action: "shadow.create", Summary: "Uncertain disk change preserved as a Shadow Revision", Detail: "path=" + path + "; shadow=" + shadow.ID, Danger: "medium", Timestamp: now})
 		r.cell.Reviews = s.generateReviews(r)
 		return snapshotLocked(r), nil
 	}
@@ -860,7 +860,7 @@ func (s *Store) ApplyDiskDelete(id, path, base, actor string) (model.CellSnapsho
 		r.cell.Shadows = append(r.cell.Shadows, shadow)
 		r.cell.UpdatedAt, r.cell.Revision = now, r.cell.Revision+1
 		s.appendEvidenceLocked(r, "shadow-create", map[string]string{"shadowID": shadow.ID, "author": shadow.Author, "baseHash": shadow.BaseHash, "reason": shadow.Reason})
-		s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: shadow.Author, Actor: shadow.Author, Action: "shadow.create", Summary: "Uncertain disk deletion preserved as a Shadow Revision", Detail: "path=" + path + "; shadow=" + shadow.ID, Danger: "medium", Authenticated: true, Timestamp: now})
+		s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: shadow.Author, Actor: shadow.Author, Action: "shadow.create", Summary: "Uncertain disk deletion preserved as a Shadow Revision", Detail: "path=" + path + "; shadow=" + shadow.ID, Danger: "medium", Timestamp: now})
 		r.cell.Reviews = s.generateReviews(r)
 		return snapshotLocked(r), nil
 	}
@@ -935,7 +935,7 @@ func (s *Store) applyEditLocked(id string, r *record, path, content, actor strin
 		r.cell.UpdatedAt = now
 		r.cell.Revision++
 		s.appendEvidenceLocked(r, "secret-edit-rejection", map[string]any{"shadowID": shadow.ID, "author": actor, "path": path, "findings": len(secretScan.Findings), "scanStatus": secretScan.Status})
-		s.appendEventLocked(r, model.Event{Kind: model.EventReview, Source: actor, Actor: actor, Action: "structural.secret.finding", Summary: "Agent edit was blocked before shared-document ingestion", Detail: "path=" + path + "; shadow=" + shadow.ID, Danger: "critical", Authenticated: true, Timestamp: now})
+		s.appendEventLocked(r, model.Event{Kind: model.EventReview, Source: actor, Actor: actor, Action: "structural.secret.finding", Summary: "Agent edit was blocked before shared-document ingestion", Detail: "path=" + path + "; shadow=" + shadow.ID, Danger: "critical", Timestamp: now})
 		r.cell.Reviews = s.generateReviews(r)
 		return snapshotLocked(r), nil
 	}
@@ -970,7 +970,7 @@ func (s *Store) applyEditLocked(id string, r *record, path, content, actor strin
 		r.cell.UpdatedAt = now
 		r.cell.Revision++
 		s.appendEvidenceLocked(r, "shadow-create", map[string]string{"shadowID": shadow.ID, "author": actor, "baseHash": shadow.BaseHash, "reason": shadow.Reason})
-		s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: actor, Actor: actor, Action: "shadow.create", Summary: "Agent write preserved as a Shadow Revision", Detail: "path=" + path + "; shadow=" + shadow.ID, Danger: "medium", Authenticated: true, Timestamp: now})
+		s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: actor, Actor: actor, Action: "shadow.create", Summary: "Agent write preserved as a Shadow Revision", Detail: "path=" + path + "; shadow=" + shadow.ID, Danger: "medium", Timestamp: now})
 		r.cell.Reviews = s.generateReviews(r)
 		return snapshotLocked(r), nil
 	}
@@ -1453,7 +1453,7 @@ func (s *Store) RequestSecretGrant(id, credential, purpose, actor, envName strin
 	r.cell.SecretRequests = append(r.cell.SecretRequests, request)
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
-	s.appendEventLocked(r, model.Event{Kind: model.EventIntent, Source: actor, Actor: actor, Action: "secret.ask-human", Summary: "Agent requested a Tier-2 credential grant", Detail: "credential=" + credential + "; purpose=" + request.Purpose, Danger: "high", Authenticated: true, Timestamp: now})
+	s.appendEventLocked(r, model.Event{Kind: model.EventIntent, Source: actor, Actor: actor, Action: "secret.ask-human", Summary: "Agent requested a Tier-2 credential grant", Detail: "credential=" + credential + "; purpose=" + request.Purpose, Danger: "high", Timestamp: now})
 	return snapshotLocked(r), request, nil
 }
 
@@ -1963,7 +1963,7 @@ func (s *Store) Heartbeat(id, agentID string) (model.CellSnapshot, error) {
 	r.cell.Agent.LastSeen = now
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
-	s.appendEventLocked(r, model.Event{Kind: model.EventPresence, Source: agentID, Actor: agentID, Action: "agent.heartbeat", Summary: "Agent attachment heartbeat", Authenticated: true, Timestamp: now})
+	s.appendEventLocked(r, model.Event{Kind: model.EventPresence, Source: agentID, Actor: agentID, Action: "agent.heartbeat", Summary: "Agent attachment heartbeat", Timestamp: now})
 	return snapshotLocked(r), nil
 }
 
