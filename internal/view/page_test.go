@@ -21,6 +21,8 @@ func TestPageUsesGoSXActionsWithoutApplicationScripts(t *testing.T) {
 		`action="/gosx/action/edit-file"`,
 		`action="/gosx/action/prompt"`,
 		`name="content"`,
+		`aria-label="Repository files"`,
+		`class="file-tree-file active"`,
 		`data-collaboration-hub="/gosx/hub/cells?cellID=cell-1"`,
 		`data-collaboration-capability-url="/api/cells/cell-1/capability"`,
 		`/editor/collaborative-editor.js`,
@@ -37,6 +39,24 @@ func TestPageUsesGoSXActionsWithoutApplicationScripts(t *testing.T) {
 		if strings.Contains(html, forbidden) {
 			t.Fatalf("viewport contains application script contract %q", forbidden)
 		}
+	}
+}
+
+func TestFileTreeRendersSortedDirectoriesAndSelectedFile(t *testing.T) {
+	cell := &model.CellSnapshot{Cell: model.Cell{ID: "cell-tree", Files: []model.File{
+		{Path: "z.go", Language: "go"},
+		{Path: "internal/config/load.go", Language: "go"},
+		{Path: "cmd/mercutio/main.go", Language: "go"},
+		{Path: "README.md", Language: "markdown"},
+	}}}
+	html := gosx.RenderHTML(renderFileTree(cell, "internal/config/load.go"))
+	for _, want := range []string{`aria-label="Repository files"`, `>cmd</summary>`, `>internal</summary>`, `>config</summary>`, `class="file-tree-file active"`, `file=internal%2Fconfig%2Fload.go`} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("file tree missing %q in %s", want, html)
+		}
+	}
+	if strings.Index(html, ">cmd</summary>") > strings.Index(html, ">internal</summary>") || strings.Index(html, ">README.md</a>") > strings.Index(html, ">z.go</a>") {
+		t.Fatalf("file tree is not sorted: %s", html)
 	}
 }
 

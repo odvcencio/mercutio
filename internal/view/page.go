@@ -113,7 +113,7 @@ func renderEditor(cell *model.CellSnapshot, file *model.File, csrfToken string) 
 		tabs = append(tabs, gosx.El("a", gosx.Attrs(gosx.Attr("class", className), gosx.Attr("href", viewPath(cell.ID, item.Path))), gosx.Text(item.Path)))
 	}
 	if file == nil {
-		return gosx.El("section", gosx.Attrs(gosx.Attr("class", "editor-column")), gosx.El("div", gosx.Attrs(gosx.Attr("class", "file-tabs")), gosx.Fragment(tabs...)), gosx.El("div", gosx.Attrs(gosx.Attr("class", "empty-feed")), gosx.Text("This cell has no files.")))
+		return gosx.El("section", gosx.Attrs(gosx.Attr("class", "editor-column")), gosx.El("div", gosx.Attrs(gosx.Attr("class", "file-tabs")), gosx.Fragment(tabs...)), gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-workbench")), renderFileTree(cell, ""), gosx.El("div", gosx.Attrs(gosx.Attr("class", "empty-feed")), gosx.Text("This cell has no files."))))
 	}
 	codeEditor := gosxeditor.New("mercutio-code-editor", gosxeditor.Options{
 		Surface:          gosxeditor.SurfaceCode,
@@ -131,15 +131,73 @@ func renderEditor(cell *model.CellSnapshot, file *model.File, csrfToken string) 
 	})
 	return gosx.El("section", gosx.Attrs(gosx.Attr("class", "editor-column"), gosx.Attr("data-gosx-code-surface", "true"), gosx.Attr("data-language", file.Language)),
 		gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-toolbar")), gosx.El("div", gosx.Attrs(gosx.Attr("class", "file-tabs")), gosx.Fragment(tabs...)), gosx.El("span", gosx.Attrs(gosx.Attr("class", "revision")), gosx.Text(fmt.Sprintf("rev %d", cell.Revision)))),
-		gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-meta")), gosx.El("div", gosx.El("span", gosx.Attrs(gosx.Attr("class", "file-icon")), gosx.Text("▧")), gosx.El("strong", gosx.Text(file.Path)), gosx.El("span", gosx.Attrs(gosx.Attr("class", "muted")), gosx.Text(file.Language)))),
-		codeEditor.Render(),
-		gosx.El("div", gosx.Attrs(gosx.Attr("class", "buffer-actions")),
-			actionForm(csrfToken, "undo-edit", "buffer-action", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Undo my edit"))),
-			actionForm(csrfToken, "revert-agent-edit", "buffer-action", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Revert agent edit"))),
-			actionForm(csrfToken, "delete-file", "delete-file-form", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("class", "delete-button"), gosx.Attr("type", "submit")), gosx.Text("Delete file"))),
+		gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-workbench")),
+			renderFileTree(cell, file.Path),
+			gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-main")),
+				gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-meta")), gosx.El("div", gosx.El("span", gosx.Attrs(gosx.Attr("class", "file-icon")), gosx.Text("▧")), gosx.El("strong", gosx.Text(file.Path)), gosx.El("span", gosx.Attrs(gosx.Attr("class", "muted")), gosx.Text(file.Language)))),
+				codeEditor.Render(),
+				gosx.El("div", gosx.Attrs(gosx.Attr("class", "buffer-actions")),
+					actionForm(csrfToken, "undo-edit", "buffer-action", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Undo my edit"))),
+					actionForm(csrfToken, "revert-agent-edit", "buffer-action", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Revert agent edit"))),
+					actionForm(csrfToken, "delete-file", "delete-file-form", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("class", "delete-button"), gosx.Attr("type", "submit")), gosx.Text("Delete file"))),
+				),
+				actionForm(csrfToken, "prompt", "prompt-bar", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("div", gosx.Attrs(gosx.Attr("class", "prompt-icon")), gosx.Text("↗")), gosx.El("input", gosx.Attrs(gosx.Attr("name", "prompt"), gosx.Attr("placeholder", "Steer the agent in this cell…"), gosx.Attr("autocomplete", "off"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("class", "prompt-button"), gosx.Attr("type", "submit")), gosx.Text("Send prompt"))),
+			),
 		),
-		actionForm(csrfToken, "prompt", "prompt-bar", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("div", gosx.Attrs(gosx.Attr("class", "prompt-icon")), gosx.Text("↗")), gosx.El("input", gosx.Attrs(gosx.Attr("name", "prompt"), gosx.Attr("placeholder", "Steer the agent in this cell…"), gosx.Attr("autocomplete", "off"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("class", "prompt-button"), gosx.Attr("type", "submit")), gosx.Text("Send prompt"))),
 	)
+}
+
+type fileTreeNode struct {
+	dirs  map[string]*fileTreeNode
+	files []string
+}
+
+func renderFileTree(cell *model.CellSnapshot, selectedPath string) gosx.Node {
+	root := &fileTreeNode{dirs: map[string]*fileTreeNode{}}
+	for _, file := range cell.Files {
+		parts := strings.Split(strings.Trim(file.Path, "/"), "/")
+		if len(parts) == 0 || parts[0] == "" {
+			continue
+		}
+		node := root
+		for _, part := range parts[:len(parts)-1] {
+			if node.dirs[part] == nil {
+				node.dirs[part] = &fileTreeNode{dirs: map[string]*fileTreeNode{}}
+			}
+			node = node.dirs[part]
+		}
+		node.files = append(node.files, parts[len(parts)-1])
+	}
+	return gosx.El("nav", gosx.Attrs(gosx.Attr("class", "file-tree"), gosx.Attr("aria-label", "Repository files")),
+		gosx.El("div", gosx.Attrs(gosx.Attr("class", "file-tree-heading")), gosx.Text("FILES")),
+		gosx.El("div", gosx.Attrs(gosx.Attr("class", "file-tree-root")), gosx.Fragment(renderFileTreeNode(root, "", cell.ID, selectedPath)...)),
+	)
+}
+
+func renderFileTreeNode(node *fileTreeNode, prefix, cellID, selectedPath string) []gosx.Node {
+	dirs := make([]string, 0, len(node.dirs))
+	for name := range node.dirs {
+		dirs = append(dirs, name)
+	}
+	sort.Strings(dirs)
+	sort.Strings(node.files)
+	children := make([]gosx.Node, 0, len(dirs)+len(node.files))
+	for _, name := range dirs {
+		path := strings.TrimPrefix(prefix+"/"+name, "/")
+		children = append(children, gosx.El("details", gosx.Attrs(gosx.Attr("class", "file-tree-directory"), gosx.BoolAttr("open")),
+			gosx.El("summary", gosx.Text(name)),
+			gosx.El("div", gosx.Attrs(gosx.Attr("class", "file-tree-children")), gosx.Fragment(renderFileTreeNode(node.dirs[name], path, cellID, selectedPath)...)),
+		))
+	}
+	for _, name := range node.files {
+		path := strings.TrimPrefix(prefix+"/"+name, "/")
+		className := "file-tree-file"
+		if path == selectedPath {
+			className += " active"
+		}
+		children = append(children, gosx.El("a", gosx.Attrs(gosx.Attr("class", className), gosx.Attr("href", viewPath(cellID, path)), gosx.Attr("title", path)), gosx.Text(name)))
+	}
+	return children
 }
 
 func editorIntelligence(language string) *gosxeditor.CodeIntelligence {

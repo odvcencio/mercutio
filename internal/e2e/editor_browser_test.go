@@ -66,6 +66,8 @@ func TestGoSXEditorIntelligence(t *testing.T) {
 		chromedp.EmulateViewport(int64(viewportWidth), int64(viewportHeight)),
 		chromedp.Navigate(target),
 		chromedp.WaitVisible("#editor-content", chromedp.ByQuery),
+		chromedp.WaitVisible(".file-tree", chromedp.ByQuery),
+		chromedp.Poll(`document.querySelector(".file-tree-file.active")?.title === "cmd/hello/main.go" && Array.from(document.querySelectorAll(".file-tree-directory > summary")).some(node => node.textContent === "cmd")`, nil, chromedp.WithPollingTimeout(2*time.Second)),
 		chromedp.Poll(`document.querySelectorAll("#editor-highlight-content [class^=syntax-]").length > 0`, nil, chromedp.WithPollingTimeout(15*time.Second)),
 		chromedp.Poll(`document.querySelector("#editor-outline-headings")?.textContent.includes("main")`, nil, chromedp.WithPollingTimeout(5*time.Second)),
 		chromedp.Poll(`document.querySelector(".editor-collaboration-status")?.textContent.includes("connected")`, nil, chromedp.WithPollingTimeout(5*time.Second)),
@@ -359,7 +361,7 @@ func TestOrreryScaleAndPerformance(t *testing.T) {
 }
 
 func TestPeerEditLatencyBudget(t *testing.T) {
-	target := os.Getenv("MERCUTIO_E2E_URL")
+	target := envOr("MERCUTIO_E2E_PEER_URL", os.Getenv("MERCUTIO_E2E_URL"))
 	if target == "" {
 		t.Skip("set MERCUTIO_E2E_URL to an authenticated collaborative editor page")
 	}

@@ -25,6 +25,7 @@ for index in $(seq 2 49); do
 done
 curl -fsS -H 'Content-Type: application/json' -d '{"path":"cmd/hello/main.go","content":"package main\n\nfunc main() {}\n"}' "http://127.0.0.1:$port/api/cells/$cell_id/edit" >/dev/null
 MERCUTIO_E2E_URL="http://127.0.0.1:$port/?cell=$cell_id&file=cmd%2Fhello%2Fmain.go" \
+  MERCUTIO_E2E_PEER_URL="http://127.0.0.1:$port/?cell=cell-demo&file=main.go" \
   MERCUTIO_E2E_CELL_ID="$cell_id" \
   MERCUTIO_E2E_CELL_COUNT=50 \
   MERCUTIO_CHROME="${MERCUTIO_CHROME:-/usr/bin/google-chrome}" \
