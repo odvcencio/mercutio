@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -22,6 +23,10 @@ type nodeCellRuntime struct {
 	*sandbox.MemoryRuntime
 	cells []sandbox.NodeCell
 }
+
+type apiDrainRuntime struct{ *sandbox.MemoryRuntime }
+
+func (*apiDrainRuntime) RequiresDrainReceipt() bool { return true }
 
 func (r *nodeCellRuntime) NodeCells(_ context.Context, nodeID string) ([]sandbox.NodeCell, error) {
 	var result []sandbox.NodeCell
@@ -232,6 +237,28 @@ func TestCreateAndEditAPI(t *testing.T) {
 	handler.Edit(editResponse, editRequest)
 	if editResponse.Code != 200 || !strings.Contains(editResponse.Body.String(), "updated") {
 		t.Fatalf("edit response = %d, body=%s", editResponse.Code, editResponse.Body.String())
+	}
+}
+
+func TestDisarmedAPICompletesOnlyMatchingDurableDrain(t *testing.T) {
+	store := cell.NewStoreWithRuntime(&apiDrainRuntime{MemoryRuntime: sandbox.NewMemoryRuntime()})
+	snapshot, _ := store.Snapshot("cell-demo")
+	handler := New(store, transport.NewCellHub(store))
+	armBody := fmt.Sprintf(`{"nodeID":"node-a","programs":["GateExec"],"manifestDigest":"manifest","objectDigest":"object","profileDigest":%q,"cgroupID":7}`, snapshot.Capabilities.ProfileDigest)
+	armRequest := httptest.NewRequest(http.MethodPost, "/api/internal/cells/cell-demo/armed", strings.NewReader(armBody))
+	armResponse := httptest.NewRecorder()
+	handler.Armed(armResponse, armRequest)
+	if armResponse.Code != http.StatusAccepted {
+		t.Fatalf("arm=%d %s", armResponse.Code, armResponse.Body.String())
+	}
+	if _, err := store.Destroy("cell-demo"); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/internal/cells/cell-demo/disarmed", strings.NewReader(`{"nodeID":"node-a","finalBatchSeq":0}`))
+	response := httptest.NewRecorder()
+	handler.Disarmed(response, request)
+	if response.Code != http.StatusAccepted || !strings.Contains(response.Body.String(), `"status":"terminated"`) {
+		t.Fatalf("disarm=%d %s", response.Code, response.Body.String())
 	}
 }
 

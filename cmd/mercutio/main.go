@@ -145,6 +145,7 @@ func main() {
 	app.Mount("POST /api/cells/{cellID}/secret-grants/{requestID}/approve", operatorMutation(http.HandlerFunc(apiHandler.ApproveSecretGrant)))
 	app.Mount("POST /api/internal/tier2/consume", http.HandlerFunc(apiHandler.ConsumeSecretGrant))
 	app.Mount("POST /api/internal/cells/{cellID}/armed", authn.RequireInternal(http.HandlerFunc(apiHandler.Armed)))
+	app.Mount("POST /api/internal/cells/{cellID}/disarmed", authn.RequireInternal(http.HandlerFunc(apiHandler.Disarmed)))
 	app.Mount("GET /api/internal/cells/{cellID}/arm-state", http.HandlerFunc(apiHandler.ArmState))
 	app.Mount("POST /api/internal/telemetry/kernel", authn.RequireInternal(http.HandlerFunc(apiHandler.KernelTelemetry)))
 	app.Mount("GET /api/internal/nodes/{nodeID}/telemetry-cursor", authn.RequireInternal(http.HandlerFunc(apiHandler.NodeTelemetryCursor)))

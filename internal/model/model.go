@@ -172,6 +172,7 @@ type DivergenceRecord struct {
 
 type Sandbox struct {
 	Name           string       `json:"name,omitempty"`
+	NodeID         string       `json:"nodeID,omitempty"`
 	Phase          SandboxPhase `json:"phase"`
 	LastTransition time.Time    `json:"lastTransition,omitempty"`
 	Failure        string       `json:"failure,omitempty"`

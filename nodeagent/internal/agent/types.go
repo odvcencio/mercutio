@@ -105,3 +105,7 @@ type RuleRefresher interface {
 type Control interface {
 	Armed(context.Context, Cell, ArmResult) error
 }
+
+type DrainReporter interface {
+	FinalizeDisarm(context.Context, string) error
+}

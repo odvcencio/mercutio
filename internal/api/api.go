@@ -370,7 +370,7 @@ func (h *Handler) RecordEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Armed(w http.ResponseWriter, r *http.Request) {
-	id, err := pathParam(r.URL.Path, "cells", 2)
+	id, err := internalCellPath(r.URL.Path, "armed")
 	if err != nil {
 		errorJSON(w, http.StatusBadRequest, err)
 		return
@@ -397,8 +397,31 @@ func (h *Handler) Armed(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, snapshot.Sandbox)
 }
 
+func (h *Handler) Disarmed(w http.ResponseWriter, r *http.Request) {
+	id, err := internalCellPath(r.URL.Path, "disarmed")
+	if err != nil {
+		errorJSON(w, http.StatusBadRequest, err)
+		return
+	}
+	var input struct {
+		NodeID        string `json:"nodeID"`
+		FinalBatchSeq uint64 `json:"finalBatchSeq"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		errorJSON(w, http.StatusBadRequest, err)
+		return
+	}
+	snapshot, err := h.store.MarkDisarmed(id, input.NodeID, input.FinalBatchSeq)
+	if err != nil {
+		errorJSON(w, http.StatusConflict, err)
+		return
+	}
+	h.hub.BroadcastCell(snapshot)
+	writeJSON(w, http.StatusAccepted, snapshot)
+}
+
 func (h *Handler) ArmState(w http.ResponseWriter, r *http.Request) {
-	id, err := pathParam(r.URL.Path, "cells", 2)
+	id, err := internalCellPath(r.URL.Path, "arm-state")
 	if err != nil {
 		errorJSON(w, http.StatusBadRequest, err)
 		return
@@ -1179,6 +1202,14 @@ func pathParam(path, segment string, offset int) (string, error) {
 		return "", fmt.Errorf("invalid %s path", segment)
 	}
 	return parts[offset], nil
+}
+
+func internalCellPath(path, operation string) (string, error) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 5 || parts[0] != "api" || parts[1] != "internal" || parts[2] != "cells" || parts[3] == "" || parts[4] != operation {
+		return "", fmt.Errorf("invalid internal cell %s path", operation)
+	}
+	return parts[3], nil
 }
 
 func decodeJSON(r *http.Request, dst any) error {

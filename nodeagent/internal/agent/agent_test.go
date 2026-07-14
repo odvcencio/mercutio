@@ -17,6 +17,16 @@ type fakeLoader struct {
 	err   error
 }
 
+type fakeDrain struct {
+	cells []string
+	err   error
+}
+
+func (f *fakeDrain) FinalizeDisarm(_ context.Context, id string) error {
+	f.cells = append(f.cells, id)
+	return f.err
+}
+
 func TestFiftyCellReconcileChurnLeavesNoAgentState(t *testing.T) {
 	source := &fakeSource{cells: make([]Cell, 50)}
 	for i := range source.cells {
@@ -111,6 +121,25 @@ func TestReconcileReportsOnlyAfterArmAndDisarmsMissingCells(t *testing.T) {
 	}
 	if !reflect.DeepEqual(loader.calls, []string{"disarm:cell-1"}) {
 		t.Fatalf("missing disarm: %v", loader.calls)
+	}
+}
+
+func TestReconcileReportsDrainAfterDisarmAndRetriesReceipt(t *testing.T) {
+	source := &fakeSource{cells: []Cell{{ID: "cell-drain", CgroupID: 9}}}
+	loader := &fakeLoader{}
+	drain := &fakeDrain{err: errors.New("control unavailable")}
+	controlCalls := []string{}
+	agent := &Agent{Source: source, Loader: loader, Control: &fakeControl{calls: &controlCalls}, Drain: drain}
+	if err := agent.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	source.cells = nil
+	if err := agent.Reconcile(context.Background()); err == nil || len(drain.cells) != 1 {
+		t.Fatalf("first drain err=%v calls=%v", err, drain.cells)
+	}
+	drain.err = nil
+	if err := agent.Reconcile(context.Background()); err != nil || len(drain.cells) != 2 {
+		t.Fatalf("retry err=%v calls=%v", err, drain.cells)
 	}
 }
 

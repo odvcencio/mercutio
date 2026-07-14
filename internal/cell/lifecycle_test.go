@@ -1,13 +1,19 @@
 package cell
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"m31labs.dev/mercutio/internal/model"
+	"m31labs.dev/mercutio/internal/sandbox"
 )
+
+type receiptRuntime struct{ *sandbox.MemoryRuntime }
+
+func (*receiptRuntime) RequiresDrainReceipt() bool { return true }
 
 func TestPauseResumeUsesNormativeLifecycle(t *testing.T) {
 	store := NewStore()
@@ -40,5 +46,31 @@ func TestLoadStateNormalizesLegacyLifecycle(t *testing.T) {
 	snapshot, err := store.Snapshot("legacy")
 	if err != nil || snapshot.Status != model.CellActive {
 		t.Fatalf("status=%s err=%v", snapshot.Status, err)
+	}
+}
+
+func TestDestroyWaitsForDurableNodeDrainReceipt(t *testing.T) {
+	store := NewStoreWithRuntime(&receiptRuntime{MemoryRuntime: sandbox.NewMemoryRuntime()})
+	draining, err := store.Destroy("cell-demo")
+	if err != nil || draining.Status != model.CellDraining {
+		t.Fatalf("destroy status=%s err=%v", draining.Status, err)
+	}
+	if _, err = store.MarkDisarmed("cell-demo", "node-a", 1); err == nil {
+		t.Fatal("accepted disarm receipt ahead of durable telemetry")
+	}
+	terminated, err := store.MarkDisarmed("cell-demo", "node-a", 0)
+	if err != nil || terminated.Status != model.CellTerminated {
+		t.Fatalf("terminated status=%s err=%v", terminated.Status, err)
+	}
+	receipts := store.Evidence("cell-demo")
+	foundReceipt := false
+	for _, receipt := range receipts {
+		foundReceipt = foundReceipt || receipt.Kind == "cell-drain-receipt"
+	}
+	if !foundReceipt {
+		t.Fatal("drain receipt missing")
+	}
+	if _, _, err = store.Reconcile(context.Background(), "cell-demo"); err != nil {
+		t.Fatal(err)
 	}
 }

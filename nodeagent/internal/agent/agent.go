@@ -13,6 +13,7 @@ type Agent struct {
 	Source   Source
 	Loader   Loader
 	Control  Control
+	Drain    DrainReporter
 	Interval time.Duration
 	armed    map[string]string
 }
@@ -87,6 +88,12 @@ func (a *Agent) Reconcile(ctx context.Context) error {
 		if disarmErr := a.Loader.Disarm(ctx, cellID); disarmErr != nil {
 			failures = append(failures, fmt.Errorf("disarm cell %s: %w", cellID, disarmErr))
 			continue
+		}
+		if a.Drain != nil {
+			if reportErr := a.Drain.FinalizeDisarm(ctx, cellID); reportErr != nil {
+				failures = append(failures, fmt.Errorf("finalize disarmed cell %s: %w", cellID, reportErr))
+				continue
+			}
 		}
 		delete(a.armed, cellID)
 	}

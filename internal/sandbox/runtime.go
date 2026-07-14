@@ -92,6 +92,10 @@ type PolicyFinalizer interface {
 	FinalizePolicy(context.Context, string, string, string) error
 }
 
+type DrainReceiptRuntime interface {
+	RequiresDrainReceipt() bool
+}
+
 type MemoryRuntime struct {
 	mu   sync.RWMutex
 	pods map[string]Pod
@@ -205,6 +209,8 @@ type KubernetesRuntime struct {
 	serviceAccount  string
 	classNamespaces map[string]string
 }
+
+func (*KubernetesRuntime) RequiresDrainReceipt() bool { return true }
 
 func NewKubernetesRuntime(client kubernetes.Interface, opts KubernetesRuntimeOptions) *KubernetesRuntime {
 	if opts.Namespace == "" {

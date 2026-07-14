@@ -80,7 +80,7 @@ func run() error {
 	go pollActionDecisions(ctx, nodeID, control, manager)
 	runner := &agent.Agent{
 		Source: agent.ControlSource{Control: control, NodeID: nodeID, CgroupRoot: envOr("MERCUTIO_CGROUP_ROOT", "/sys/fs/cgroup")},
-		Loader: manager, Control: control, Interval: time.Duration(envInt("MERCUTIO_RECONCILE_MS", 2000)) * time.Millisecond,
+		Loader: manager, Control: control, Drain: agent.NodeDrainReporter{NodeID: nodeID, Queue: queue, Control: control}, Interval: time.Duration(envInt("MERCUTIO_RECONCILE_MS", 2000)) * time.Millisecond,
 	}
 	go func() { errorsCh <- runner.Run(ctx) }()
 	for {

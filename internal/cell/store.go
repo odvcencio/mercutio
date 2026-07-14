@@ -331,20 +331,61 @@ func (s *Store) Destroy(id string) (model.CellSnapshot, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now = time.Now().UTC()
-	if err := s.secretBroker.DeleteCell(id); err != nil {
+	if drainRuntime, ok := s.runtime.(sandbox.DrainReceiptRuntime); ok && drainRuntime.RequiresDrainReceipt() && r.cell.Sandbox.Armed {
+		return snapshotLocked(r), nil
+	}
+	return s.finalizeTerminationLocked(r, "local-runtime", 0)
+}
+
+func (s *Store) MarkDisarmed(id, nodeID string, finalBatchSeq uint64) (model.CellSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.cells[id]
+	if !ok {
+		return model.CellSnapshot{}, fmt.Errorf("cell %q not found", id)
+	}
+	if r.cell.Status == model.CellTerminated {
+		return snapshotLocked(r), nil
+	}
+	if r.cell.Status != model.CellDraining {
+		return model.CellSnapshot{}, fmt.Errorf("cell %q is not draining", id)
+	}
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" {
+		return model.CellSnapshot{}, fmt.Errorf("node identity is required")
+	}
+	if r.cell.Sandbox.NodeID != "" && r.cell.Sandbox.NodeID != nodeID {
+		return model.CellSnapshot{}, fmt.Errorf("node %q does not own cell enforcement", nodeID)
+	}
+	if durable := s.kernelBatches[nodeID]; durable != finalBatchSeq {
+		return model.CellSnapshot{}, fmt.Errorf("final telemetry cursor %d is not durable cursor %d", finalBatchSeq, durable)
+	}
+	return s.finalizeTerminationLocked(r, nodeID, finalBatchSeq)
+}
+
+func (s *Store) finalizeTerminationLocked(r *record, nodeID string, finalBatchSeq uint64) (model.CellSnapshot, error) {
+	now := time.Now().UTC()
+	if err := s.appendEvidenceLocked(r, "cell-drain-receipt", map[string]any{"cellID": r.cell.ID, "nodeID": nodeID, "finalBatchSeq": finalBatchSeq, "terminatedAt": now}); err != nil {
+		return snapshotLocked(r), fmt.Errorf("persist cell drain receipt: %w", err)
+	}
+	if err := s.secretBroker.DeleteCell(r.cell.ID); err != nil {
 		r.cell.Status = model.CellError
 		r.cell.Sandbox.Failure = "secret cleanup: " + secrets.RedactText(err.Error())
 		return snapshotLocked(r), fmt.Errorf("delete brokered cell secrets: %w", err)
 	}
 	r.cell.Status = model.CellTerminated
 	r.cell.Sandbox.Phase = model.SandboxStopped
+	r.cell.Sandbox.NodeID = ""
+	r.cell.Sandbox.Armed = false
+	r.cell.Sandbox.Programs = nil
+	r.cell.Sandbox.CgroupID = 0
 	r.cell.Sandbox.LastTransition = now
 	r.cell.Agent.Connected = false
 	r.cell.Agent.Status = "stopped"
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
-	s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: "operator", Action: "cell.terminated", Summary: "Sandbox cell terminated", Detail: "The control plane released runtime resources; durable evidence remains reviewable.", Danger: "high", Timestamp: now})
+	detail := "runtime resources released; node=" + nodeID + "; finalBatchSeq=" + fmt.Sprint(finalBatchSeq) + "; durable evidence remains reviewable"
+	s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: nodeID, Action: "cell.terminated", Summary: "Sandbox cell terminated after enforcement drain", Detail: detail, Danger: "high", Authenticated: true, Timestamp: now})
 	r.docs = nil
 	r.history = nil
 	r.writers = nil
@@ -759,8 +800,9 @@ func (s *Store) MarkArmedContext(ctx context.Context, id string, receipt ArmRece
 	r.cell.Sandbox.ManifestDigest = receipt.ManifestDigest
 	r.cell.Sandbox.ObjectDigest = receipt.ObjectDigest
 	r.cell.Sandbox.CgroupID = receipt.CgroupID
+	r.cell.Sandbox.NodeID = receipt.NodeID
 	r.cell.Sandbox.Enforcement = defaultValue(receipt.Enforcement, "r1-kernel")
-	if r.cell.Sandbox.Phase == model.SandboxRunning {
+	if r.cell.Sandbox.Phase == model.SandboxRunning && r.cell.Status != model.CellActive && r.cell.Status != model.CellPaused && r.cell.Status != model.CellReviewing && r.cell.Status != model.CellCommitting {
 		r.cell.Status = model.CellReady
 	}
 	r.cell.UpdatedAt = now
@@ -2530,7 +2572,6 @@ func (s *Store) applyPolicy(ctx context.Context, id, content, actor string) (mod
 		return snapshot, preview, nil
 	}
 	previousStatus := r.cell.Status
-	r.cell.Status = model.CellArming
 	r.cell.UpdatedAt = time.Now().UTC()
 	r.cell.Revision++
 	s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: defaultValue(actor, "operator"), Actor: defaultValue(actor, "operator"), Action: "policy.replay", Summary: "Policy replay approved; enforcement re-arm started", Detail: strings.Join(preview.Changes, "; "), Danger: preview.After.Danger, Authenticated: true, Timestamp: r.cell.UpdatedAt})
@@ -2557,9 +2598,9 @@ func (s *Store) applyPolicy(ctx context.Context, id, content, actor string) (mod
 		r.cell.Sandbox.Armed = true
 		r.cell.Sandbox.ArmedAt = r.cell.Sandbox.LastTransition
 		r.cell.Sandbox.Enforcement = "memory-runtime"
-		r.cell.Status = model.CellReady
+		r.cell.Status = previousStatus
 	} else {
-		r.cell.Status = model.CellArming
+		r.cell.Status = previousStatus
 		r.cell.Sandbox.Armed = false
 		r.cell.Sandbox.ArmedAt = time.Time{}
 		r.cell.Sandbox.Programs = nil

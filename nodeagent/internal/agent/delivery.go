@@ -24,6 +24,7 @@ type telemetryCursorSource interface {
 
 type TelemetryQueue struct {
 	mu       sync.Mutex
+	flushMu  sync.Mutex
 	capacity int
 	nodeID   string
 	events   []KernelEvent
@@ -133,6 +134,8 @@ func (q *TelemetryQueue) reconcileCursor(ctx context.Context) error {
 }
 
 func (q *TelemetryQueue) flush(ctx context.Context) error {
+	q.flushMu.Lock()
+	defer q.flushMu.Unlock()
 	q.mu.Lock()
 	if len(q.events) == 0 && len(q.drops) == 0 {
 		q.mu.Unlock()
@@ -169,6 +172,32 @@ func (q *TelemetryQueue) flush(ctx context.Context) error {
 	q.sequence = batchSeq
 	q.mu.Unlock()
 	return nil
+}
+
+func (q *TelemetryQueue) Flush(ctx context.Context) (uint64, error) {
+	if err := q.flush(ctx); err != nil {
+		return 0, err
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.sequence, nil
+}
+
+type NodeDrainReporter struct {
+	NodeID  string
+	Queue   *TelemetryQueue
+	Control HTTPControl
+}
+
+func (r NodeDrainReporter) FinalizeDisarm(ctx context.Context, cellID string) error {
+	if r.Queue == nil {
+		return fmt.Errorf("telemetry queue is required")
+	}
+	sequence, err := r.Queue.Flush(ctx)
+	if err != nil {
+		return fmt.Errorf("flush final telemetry: %w", err)
+	}
+	return r.Control.Disarmed(ctx, cellID, r.NodeID, sequence)
 }
 
 func clockSync(nodeID string) ClockSync {
@@ -255,6 +284,12 @@ func (h HTTPControl) Armed(ctx context.Context, cell Cell, result ArmResult) err
 		"objectDigest": result.ObjectDigest, "profileDigest": cell.ProfileDigest, "cgroupID": cell.CgroupID, "enforcement": result.Enforcement,
 	})
 	endpoint := strings.TrimRight(h.BaseURL, "/") + "/api/internal/cells/" + cell.ID + "/armed"
+	return h.do(ctx, http.MethodPost, endpoint, payload)
+}
+
+func (h HTTPControl) Disarmed(ctx context.Context, cellID, nodeID string, finalBatchSeq uint64) error {
+	payload, _ := json.Marshal(map[string]any{"nodeID": nodeID, "finalBatchSeq": finalBatchSeq})
+	endpoint := strings.TrimRight(h.BaseURL, "/") + "/api/internal/cells/" + cellID + "/disarmed"
 	return h.do(ctx, http.MethodPost, endpoint, payload)
 }
 

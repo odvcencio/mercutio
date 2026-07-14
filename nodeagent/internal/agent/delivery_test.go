@@ -2,7 +2,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -11,6 +14,37 @@ type recordingPoster struct{ batches []Batch }
 func (p *recordingPoster) PostBatch(_ context.Context, batch Batch) error {
 	p.batches = append(p.batches, batch)
 	return nil
+}
+
+func TestNodeDrainReporterFlushesTelemetryBeforeReceipt(t *testing.T) {
+	var order []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/internal/telemetry/kernel":
+			order = append(order, "telemetry")
+		case "/api/internal/cells/cell-a/disarmed":
+			var body struct {
+				NodeID        string `json:"nodeID"`
+				FinalBatchSeq uint64 `json:"finalBatchSeq"`
+			}
+			if json.NewDecoder(r.Body).Decode(&body) != nil || body.NodeID != "node-a" || body.FinalBatchSeq != 1 {
+				t.Fatalf("drain body=%+v", body)
+			}
+			order = append(order, "disarmed")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	control := HTTPControl{BaseURL: server.URL, Token: "node-token", Client: server.Client()}
+	queue := NewTelemetryQueue("node-a", 8, control)
+	queue.Enqueue(KernelEvent{CellID: "cell-a", Kind: "exec"})
+	if err := (NodeDrainReporter{NodeID: "node-a", Queue: queue, Control: control}).FinalizeDisarm(context.Background(), "cell-a"); err != nil {
+		t.Fatal(err)
+	}
+	if len(order) != 2 || order[0] != "telemetry" || order[1] != "disarmed" {
+		t.Fatalf("order=%v", order)
+	}
 }
 
 type reconnectingPoster struct {
