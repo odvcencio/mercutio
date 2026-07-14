@@ -158,6 +158,7 @@ func approveSecretGrant(store *cell.Store, hub *transport.CellHub) action.Handle
 			return action.Error(500, "approved secret request disappeared")
 		}
 		if err = hub.DeliverTier2Grant(cellID, request, grant); err != nil {
+			_, _ = store.FailSecretGrantDelivery(cellID, requestID, err.Error())
 			return action.Error(409, err.Error())
 		}
 		hub.BroadcastCell(snapshot)

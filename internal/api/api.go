@@ -643,6 +643,7 @@ func (h *Handler) ApproveSecretGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err = h.hub.DeliverTier2Grant(id, request, grant); err != nil {
+		_, _ = h.store.FailSecretGrantDelivery(id, requestID, err.Error())
 		errorJSON(w, http.StatusConflict, err)
 		return
 	}

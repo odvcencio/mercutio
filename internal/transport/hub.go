@@ -35,8 +35,10 @@ type CellHub struct {
 }
 
 type agentSession struct {
-	CellID  string
-	AgentID string
+	CellID      string
+	AgentID     string
+	ExpiresAt   int64
+	Permissions map[string]bool
 }
 
 type pendingCommit struct {
@@ -145,7 +147,8 @@ func NewCellHub(store *cell.Store) *CellHub {
 			return
 		}
 		h.mu.Lock()
-		h.agents[ctx.Client.ID] = agentSession{CellID: cellID, AgentID: snapshot.Agent.ID}
+		expiresAt, _ := strconv.ParseInt(metadataValue(ctx.Client, "expiresAt"), 10, 64)
+		h.agents[ctx.Client.ID] = agentSession{CellID: cellID, AgentID: snapshot.Agent.ID, ExpiresAt: expiresAt, Permissions: permissionSet(metadataValue(ctx.Client, "permissions"))}
 		h.agentByCell[cellID] = ctx.Client.ID
 		h.mu.Unlock()
 		docActor, _ := ctx.Client.Metadata("docActor")
@@ -502,10 +505,35 @@ func metadataPermission(client *hub.Client, permission string) bool {
 	return false
 }
 
+func metadataValue(client *hub.Client, key string) string {
+	value, _ := client.Metadata(key)
+	return value
+}
+
+func permissionSet(encoded string) map[string]bool {
+	result := make(map[string]bool)
+	for _, permission := range strings.Split(encoded, ",") {
+		if permission = strings.TrimSpace(permission); permission != "" {
+			result[permission] = true
+		}
+	}
+	return result
+}
+
+func (h *CellHub) authorizedAgent(clientID, cellID, permission string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	session, ok := h.agents[clientID]
+	return ok && session.CellID == cellID && session.ExpiresAt > time.Now().UTC().Unix() && session.Permissions[permission]
+}
+
 func (h *CellHub) DeliverTier2Grant(cellID string, request model.SecretGrantRequest, token string) error {
 	clientID := h.AgentClient(cellID)
 	if clientID == "" {
 		return fmt.Errorf("no attach sidecar for cell %q", cellID)
+	}
+	if !h.authorizedAgent(clientID, cellID, "secret:request") {
+		return fmt.Errorf("attach sidecar capability expired or lacks secret delivery permission")
 	}
 	h.agentHub.Send(clientID, "agent:tier2-grant", map[string]any{"cellID": cellID, "requestID": request.ID, "grant": token, "envName": request.EnvName, "command": request.Command, "workingDir": request.WorkingDir, "expiresAt": request.ExpiresAt})
 	return nil
@@ -516,18 +544,28 @@ func (h *CellHub) DeliverProxyRoute(cellID, routeID, proxyURL string) error {
 	if clientID == "" {
 		return fmt.Errorf("no attach sidecar for cell %q", cellID)
 	}
+	if !h.authorizedAgent(clientID, cellID, "secret:request") {
+		return fmt.Errorf("attach sidecar capability expired or lacks proxy delivery permission")
+	}
 	h.agentHub.Send(clientID, "agent:proxy-route", map[string]string{"cellID": cellID, "routeID": routeID, "proxyURL": proxyURL})
 	return nil
 }
 
-func (h *CellHub) SendAgent(clientID, event string, value any) {
+func (h *CellHub) SendAgent(clientID, event string, value any) bool {
+	h.mu.RLock()
+	session, ok := h.agents[clientID]
+	h.mu.RUnlock()
+	if !ok || session.ExpiresAt <= time.Now().UTC().Unix() || !session.Permissions["prompt:read"] {
+		return false
+	}
 	h.agentHub.Send(clientID, event, value)
+	return true
 }
 
 func (h *CellHub) RegisterCell(id string) {
 	h.registerCell(id)
 	if snapshot, err := h.store.Snapshot(id); err == nil {
-		h.Broadcast("cell:update", snapshot)
+		h.BroadcastCell(snapshot)
 	}
 }
 
@@ -545,7 +583,10 @@ func (h *CellHub) BroadcastCell(snapshot model.CellSnapshot) {
 // AskHuman delivers a blocking governance request only to operator
 // connections already bound to this cell by server-side capability metadata.
 func (h *CellHub) AskHuman(cellID string, request model.ActionApproval) {
-	h.broadcastCellEvent(cellID, "control:ask-human", map[string]any{"cellID": cellID, "request": request})
+	h.Hub.BroadcastWhere("control:ask-human", map[string]any{"cellID": cellID, "request": request}, func(client *hub.Client) bool {
+		bound, _ := client.Metadata("cellID")
+		return bound == cellID && metadataPermission(client, "cell:control")
+	})
 }
 
 func (h *CellHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -575,14 +616,19 @@ func capabilityMetadata(cellID, actor, role string, permissions []string, expire
 func (h *CellHub) broadcastCellEvent(cellID, event string, value any) {
 	h.Hub.BroadcastWhere(event, value, func(client *hub.Client) bool {
 		bound, _ := client.Metadata("cellID")
-		return bound == cellID
+		return bound == cellID && metadataPermission(client, "doc:read")
 	})
 }
 
 func (h *CellHub) AgentClient(cellID string) string {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	return h.agentByCell[cellID]
+	clientID := h.agentByCell[cellID]
+	session, ok := h.agents[clientID]
+	if !ok || session.CellID != cellID || session.ExpiresAt <= time.Now().UTC().Unix() {
+		return ""
+	}
+	return clientID
 }
 
 // DisconnectCell revokes the live attach transport for a cell immediately.
@@ -609,6 +655,9 @@ func (h *CellHub) RequestAgentCommit(ctx context.Context, request review.CommitR
 	clientID := h.AgentClient(request.CellID)
 	if clientID == "" {
 		return "", fmt.Errorf("no agent is attached to cell %q", request.CellID)
+	}
+	if !h.authorizedAgent(clientID, request.CellID, "agent:commit") {
+		return "", fmt.Errorf("agent capability expired or lacks commit permission")
 	}
 	requestID := fmt.Sprintf("commit-%d", time.Now().UnixNano())
 	result := make(chan commitResult, 1)

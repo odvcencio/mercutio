@@ -1474,6 +1474,36 @@ func (s *Store) ApproveSecretGrant(id, requestID, operator, capToken string) (mo
 	return model.CellSnapshot{}, "", fmt.Errorf("secret request %q not found", requestID)
 }
 
+// FailSecretGrantDelivery returns an unconsumed approval to pending after the
+// attach-sidecar delivery boundary fails. The issued token becomes unusable
+// because consumption also requires durable approved state.
+func (s *Store) FailSecretGrantDelivery(id, requestID, _ string) (model.CellSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.cells[id]
+	if !ok {
+		return model.CellSnapshot{}, fmt.Errorf("cell %q not found", id)
+	}
+	for index := range r.cell.SecretRequests {
+		request := &r.cell.SecretRequests[index]
+		if request.ID != requestID {
+			continue
+		}
+		if request.Status != "approved" {
+			return snapshotLocked(r), fmt.Errorf("secret request is not awaiting delivery")
+		}
+		now := time.Now().UTC()
+		request.Status = "pending"
+		request.ApprovedBy = ""
+		request.ExpiresAt = time.Time{}
+		r.cell.UpdatedAt = now
+		r.cell.Revision++
+		s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: "control-plane", Action: "secret.grant.delivery-failed", Summary: "Tier-2 credential grant delivery failed closed", Detail: "request=" + requestID + "; reason=attach-delivery-unavailable", Danger: "critical", Authenticated: true, Timestamp: now})
+		return snapshotLocked(r), nil
+	}
+	return model.CellSnapshot{}, fmt.Errorf("secret request %q not found", requestID)
+}
+
 func (s *Store) ConsumeSecretGrant(id, requestID, token string) (string, secrets.Receipt, error) {
 	claims, err := s.capabilities.Verify(token, id, "tier2:consume:"+requestID)
 	if err != nil || claims.Role != "attach" || claims.ActorID != "attach-"+id {

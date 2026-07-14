@@ -350,6 +350,55 @@ func TestBrowserReceivesOnlyItsCellCRDTDocuments(t *testing.T) {
 	}
 }
 
+func TestExpiredOperatorConnectionReceivesNoCellBroadcasts(t *testing.T) {
+	store := cell.NewStore()
+	h := NewCellHub(store)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.Hub.ServeHTTPWithMetadata(w, r, hub.ConnectionMetadata{
+			"cellID": "cell-demo", "actor": "operator", "role": "operator",
+			"permissions": "doc:read,cell:control", "expiresAt": "1",
+		})
+	}))
+	defer server.Close()
+	connection, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	readEvent(t, connection, "state")
+	snapshot, _ := store.Snapshot("cell-demo")
+	h.BroadcastCell(snapshot)
+	h.AskHuman("cell-demo", model.ActionApproval{ID: "ask-expired", CellID: "cell-demo"})
+	_ = connection.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	for {
+		var message hub.Message
+		if err := connection.ReadJSON(&message); err != nil {
+			break
+		}
+		if message.Event == "cell:update" || message.Event == "control:ask-human" {
+			t.Fatalf("expired connection received %s", message.Event)
+		}
+	}
+}
+
+func TestExpiredAgentSessionCannotReceivePrivilegedOutboundWork(t *testing.T) {
+	h := NewCellHub(cell.NewStore())
+	h.agents["expired"] = agentSession{CellID: "cell-demo", AgentID: "agent-cell-demo", ExpiresAt: 1, Permissions: map[string]bool{"prompt:read": true, "secret:request": true, "agent:commit": true}}
+	h.agentByCell["cell-demo"] = "expired"
+	if h.AgentClient("cell-demo") != "" {
+		t.Fatal("expired agent remained discoverable")
+	}
+	if h.SendAgent("expired", "prompt:deliver", map[string]string{"prompt": "unsafe"}) {
+		t.Fatal("prompt delivered to expired agent")
+	}
+	if err := h.DeliverTier2Grant("cell-demo", model.SecretGrantRequest{ID: "grant"}, "token"); err == nil {
+		t.Fatal("Tier-2 grant delivered to expired agent")
+	}
+	if _, err := h.RequestAgentCommit(context.Background(), review.CommitRequest{CellID: "cell-demo"}); err == nil {
+		t.Fatal("commit request delivered to expired agent")
+	}
+}
+
 func TestDestroyedCellReleasesHubDocuments(t *testing.T) {
 	store := cell.NewStore()
 	created, err := store.Create("https://github.com/example/temporary", "main", "standard")
