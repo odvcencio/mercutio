@@ -44,6 +44,7 @@ type kernelBatch struct {
 type kernelClock struct {
 	MonotonicNS int64  `json:"monotonicNs"`
 	RealtimeNS  int64  `json:"realtimeNs"`
+	SkewBoundMS int64  `json:"skewBoundMs"`
 	NodeID      string `json:"nodeID"`
 }
 
@@ -98,7 +99,7 @@ func (h *Handler) KernelTelemetry(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusBadRequest, err)
 		return
 	}
-	if batch.NodeID == "" || batch.BatchSeq == 0 || batch.Clock.NodeID != batch.NodeID || batch.Clock.MonotonicNS <= 0 || batch.Clock.RealtimeNS <= 0 || len(batch.Events) > 512 {
+	if batch.NodeID == "" || batch.BatchSeq == 0 || batch.Clock.NodeID != batch.NodeID || batch.Clock.MonotonicNS <= 0 || batch.Clock.RealtimeNS <= 0 || batch.Clock.SkewBoundMS <= 0 || len(batch.Events) > 512 {
 		errorJSON(w, http.StatusBadRequest, fmt.Errorf("valid node, sequence, clock sync, and at most 512 events are required"))
 		return
 	}
@@ -141,6 +142,10 @@ func (h *Handler) KernelTelemetry(w http.ResponseWriter, r *http.Request) {
 		if index == 0 {
 			eventDrops = drops
 		}
+		skewBound := raw.ClockSkewBoundMS
+		if skewBound <= 0 || skewBound < batch.Clock.SkewBoundMS {
+			skewBound = batch.Clock.SkewBoundMS
+		}
 		event := model.Event{
 			ID: fmt.Sprintf("kernel:%s:%d:%d", batch.NodeID, batch.BatchSeq, index), Kind: model.EventKernel,
 			Source: "horizon-node-agent", Action: action, Summary: summary,
@@ -148,7 +153,7 @@ func (h *Handler) KernelTelemetry(w http.ResponseWriter, r *http.Request) {
 			DangerAxes: dangerAxes(raw.ActionDanger), ProgramDanger: dangerAxes(raw.ProgramDanger), Danger: dangerLabel(raw.ActionDanger), Verdict: raw.Verdict,
 			Path: raw.Path, PathTruncated: raw.PathTruncated, Argv: raw.Argv, ArgvTruncated: raw.ArgvTruncated, Destination: raw.Destination, CPU: raw.CPU, KernelSeq: raw.Seq, BatchSeq: batch.BatchSeq, Drops: eventDrops,
 			PID: raw.PID, CgroupID: raw.CgroupID, NodeID: batch.NodeID,
-			ClockSkewBoundMS: raw.ClockSkewBoundMS, Evidence: defaultEventText(raw.Evidence, "clean"),
+			ClockSkewBoundMS: skewBound, Evidence: defaultEventText(raw.Evidence, "clean"),
 			Authenticated: true, Timestamp: at,
 		}
 		if gap && index == 0 {

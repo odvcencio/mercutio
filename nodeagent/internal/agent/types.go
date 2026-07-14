@@ -63,6 +63,7 @@ type KernelEvent struct {
 type ClockSync struct {
 	MonotonicNS int64  `json:"monotonicNs"`
 	RealtimeNS  int64  `json:"realtimeNs"`
+	SkewBoundMS int64  `json:"skewBoundMs"`
 	NodeID      string `json:"nodeID"`
 }
 

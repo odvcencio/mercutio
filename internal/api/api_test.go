@@ -22,7 +22,7 @@ func TestKernelTelemetryPersistsGzipBatchAndEvidenceGaps(t *testing.T) {
 	post := func(sequence uint64, drops uint64) *httptest.ResponseRecorder {
 		payload := map[string]any{
 			"nodeID": "node-a", "batchSeq": sequence,
-			"clockSync": map[string]any{"nodeID": "node-a", "monotonicNs": int64(10_000), "realtimeNs": now.UnixNano()},
+			"clockSync": map[string]any{"nodeID": "node-a", "monotonicNs": int64(10_000), "realtimeNs": now.UnixNano(), "skewBoundMs": 7},
 			"events": []map[string]any{{
 				"cellID": "cell-demo", "nodeID": "node-a", "seq": sequence, "tsNs": uint64(10_000),
 				"kind": "exec", "verdict": "deny", "pid": 9, "program": "GateExec",
@@ -55,7 +55,7 @@ func TestKernelTelemetryPersistsGzipBatchAndEvidenceGaps(t *testing.T) {
 		t.Fatal(err)
 	}
 	latest := snapshot.Events[len(snapshot.Events)-1]
-	if latest.Kind != "kernel" || latest.BatchSeq != 3 || latest.Drops != 4 || latest.Verdict != "deny" || latest.Path != "/usr/bin/curl" || !latest.Authenticated {
+	if latest.Kind != "kernel" || latest.BatchSeq != 3 || latest.Drops != 4 || latest.Verdict != "deny" || latest.Path != "/usr/bin/curl" || !latest.Authenticated || latest.ClockSkewBoundMS != 7 {
 		t.Fatalf("kernel event not preserved: %+v", latest)
 	}
 	if !strings.Contains(latest.Detail, "batch-gap=true") {
@@ -79,7 +79,7 @@ func TestKernelAskCreatesOperatorApprovalAndNodeDecision(t *testing.T) {
 	now := time.Now().UTC()
 	payload := map[string]any{
 		"nodeID": "node-a", "batchSeq": 1,
-		"clockSync": map[string]any{"nodeID": "node-a", "monotonicNs": int64(100), "realtimeNs": now.UnixNano()},
+		"clockSync": map[string]any{"nodeID": "node-a", "monotonicNs": int64(100), "realtimeNs": now.UnixNano(), "skewBoundMs": 4},
 		"events":    []map[string]any{{"cellID": "cell-demo", "nodeID": "node-a", "cgroupID": uint64(77), "seq": 1, "tsNs": uint64(100), "kind": "exec", "verdict": "ask", "pid": 42, "program": "GateExec", "path": "/workspace/repo/tool"}},
 		"drops":     map[string]uint64{}, "sentAt": now,
 	}

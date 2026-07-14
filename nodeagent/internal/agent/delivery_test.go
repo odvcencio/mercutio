@@ -34,4 +34,7 @@ func TestTelemetryQueueShedsAllowBeforeDeny(t *testing.T) {
 	if poster.batches[0].Drops["queue-allow"] != 1 {
 		t.Fatalf("drops = %+v", poster.batches[0].Drops)
 	}
+	if poster.batches[0].Clock.SkewBoundMS <= 0 || poster.batches[0].Events[0].ClockSkewBoundM != poster.batches[0].Clock.SkewBoundMS {
+		t.Fatalf("batch omitted clock skew bound: %+v", poster.batches[0])
+	}
 }

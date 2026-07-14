@@ -69,3 +69,34 @@ func TestAuthenticatedOperatorEditPreventsD9(t *testing.T) {
 		}
 	}
 }
+
+func TestActionWindowsWidenByKernelClockSkewAndChooseOneTick(t *testing.T) {
+	base := time.Unix(4000, 0).UTC()
+	intents := []model.Event{
+		{ID: "build", TraceID: "trace-a", Kind: model.EventIntent, Action: "build.run", Timestamp: base.Add(10 * time.Second)},
+		{ID: "commit", TraceID: "trace-a", Kind: model.EventIntent, Action: "commit.create", Timestamp: base.Add(20 * time.Second)},
+	}
+	withinSkew := model.Event{ID: "kernel-near", Kind: model.EventKernel, Timestamp: base.Add(20*time.Second - 5*time.Millisecond), ClockSkewBoundMS: 10}
+	matched := correlatedIntents(intents, withinSkew)
+	if len(matched) != 1 || matched[0].ID != "commit" {
+		t.Fatalf("skew-widened event matched %+v, want commit window", matched)
+	}
+	outsideSkew := model.Event{ID: "kernel-earlier", Kind: model.EventKernel, Timestamp: base.Add(20*time.Second - 20*time.Millisecond), ClockSkewBoundMS: 10}
+	matched = correlatedIntents(intents, outsideSkew)
+	if len(matched) != 1 || matched[0].ID != "build" {
+		t.Fatalf("event outside skew matched %+v, want build window", matched)
+	}
+}
+
+func TestD2UsesTemporalActionWindowForUntracedKernelEvents(t *testing.T) {
+	base := time.Unix(5000, 0).UTC()
+	events := []model.Event{
+		{ID: "intent", TraceID: "trace-a", Kind: model.EventIntent, Action: "test.run", Timestamp: base},
+		{ID: "kernel", Kind: model.EventKernel, Action: "process.exec", Timestamp: base.Add(time.Second), ClockSkewBoundMS: 3},
+	}
+	for _, finding := range Evaluate(events, Options{CellID: "cell", Worktree: "/work", EvidenceHealthy: true}) {
+		if finding.RuleID == "D2" {
+			t.Fatalf("temporally correlated execution was reported missing: %+v", finding)
+		}
+	}
+}

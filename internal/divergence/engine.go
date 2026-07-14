@@ -35,7 +35,7 @@ func Evaluate(events []model.Event, options Options) []model.DivergenceRecord {
 	var found []candidate
 
 	for _, k := range kernels {
-		matches := correlated(intents, k)
+		matches := correlatedIntents(intents, k)
 		if dangerous(k) && !classMatch(matches, k) {
 			found = append(found, makeCandidate("D1", "Unclaimed effect", "Dangerous kernel effect has no matching claimed action class.", matches, []model.Event{k}, k.DangerAxes, evidence))
 		}
@@ -54,8 +54,9 @@ func Evaluate(events []model.Event, options Options) []model.DivergenceRecord {
 	}
 
 	for _, in := range intents {
-		if claimedEffect(in) && !hasKernelClass(kernels, in) {
-			found = append(found, makeCandidate("D2", "Claimed not observed", "Claimed test, build, or commit has no matching execution observation.", []model.Event{in}, correlated(kernels, in), in.DangerAxes, evidence))
+		observed := correlatedKernels(kernels, in, intents)
+		if claimedEffect(in) && !hasKernelClass(observed, in) {
+			found = append(found, makeCandidate("D2", "Claimed not observed", "Claimed test, build, or commit has no matching execution observation.", []model.Event{in}, observed, in.DangerAxes, evidence))
 		}
 	}
 
@@ -67,7 +68,7 @@ func Evaluate(events []model.Event, options Options) []model.DivergenceRecord {
 	}
 	for _, event := range events {
 		if structuralSecret(event) {
-			found = append(found, makeCandidate("D8", "Structural secret", "Agent-authored structural diff contains secret material.", correlated(intents, event), correlated(kernels, event), event.DangerAxes, evidence))
+			found = append(found, makeCandidate("D8", "Structural secret", "Agent-authored structural diff contains secret material.", correlatedIntents(intents, event), correlatedKernels(kernels, event, intents), event.DangerAxes, evidence))
 		}
 	}
 
@@ -86,14 +87,63 @@ func split(events []model.Event) (intent, kernel []model.Event) {
 	return
 }
 
-func correlated(events []model.Event, target model.Event) []model.Event {
-	var out []model.Event
-	for _, e := range events {
-		if target.TraceID != "" && e.TraceID == target.TraceID {
-			out = append(out, e)
+// correlatedIntents places a timestamped event into exactly one action window.
+// A window starts at an intent tick and ends at the next tick of the same
+// trace; the kernel-provided clock uncertainty widens both boundaries. When
+// widened windows overlap, the latest eligible tick wins deterministically.
+func correlatedIntents(intents []model.Event, target model.Event) []model.Event {
+	if target.Timestamp.IsZero() {
+		return nil
+	}
+	groups := make(map[string][]model.Event)
+	for _, event := range intents {
+		if event.TraceID == "" || target.TraceID != "" && event.TraceID != target.TraceID {
+			continue
+		}
+		groups[event.TraceID] = append(groups[event.TraceID], event)
+	}
+	skew := time.Duration(target.ClockSkewBoundMS) * time.Millisecond
+	var selected *model.Event
+	for key := range groups {
+		ticks := groups[key]
+		sort.Slice(ticks, func(i, j int) bool { return ticks[i].Timestamp.Before(ticks[j].Timestamp) })
+		for index := range ticks {
+			lower := ticks[index].Timestamp.Add(-skew)
+			if target.Timestamp.Before(lower) {
+				continue
+			}
+			if index+1 < len(ticks) && target.Timestamp.After(ticks[index+1].Timestamp.Add(skew)) {
+				continue
+			}
+			candidate := ticks[index]
+			if selected == nil || candidate.Timestamp.After(selected.Timestamp) || candidate.Timestamp.Equal(selected.Timestamp) && eventIdentity(candidate) < eventIdentity(*selected) {
+				selected = &candidate
+			}
 		}
 	}
-	return out
+	if selected == nil {
+		return nil
+	}
+	return []model.Event{*selected}
+}
+
+func correlatedKernels(kernels []model.Event, target model.Event, intents []model.Event) []model.Event {
+	var result []model.Event
+	want := eventIdentity(target)
+	for _, kernel := range kernels {
+		matched := correlatedIntents(intents, kernel)
+		if len(matched) == 1 && eventIdentity(matched[0]) == want {
+			result = append(result, kernel)
+		}
+	}
+	return result
+}
+
+func eventIdentity(event model.Event) string {
+	if event.ID != "" {
+		return event.ID
+	}
+	return event.TraceID + "@" + event.Timestamp.UTC().Format(time.RFC3339Nano) + ":" + event.Action + ":" + event.Source
 }
 
 func actionClass(action string) string {
@@ -117,7 +167,7 @@ func classMatch(events []model.Event, target model.Event) bool {
 func hasKernelClass(events []model.Event, target model.Event) bool {
 	for _, e := range events {
 		class := actionClass(e.Action)
-		if (target.TraceID == "" || e.TraceID == target.TraceID) && (class == actionClass(target.Action) || class == "exec") {
+		if class == actionClass(target.Action) || class == "exec" {
 			return true
 		}
 	}

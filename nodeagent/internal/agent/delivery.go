@@ -120,7 +120,11 @@ func (q *TelemetryQueue) flush(ctx context.Context) error {
 	q.sequence++
 	batchSeq := q.sequence
 	q.mu.Unlock()
-	batch := Batch{NodeID: q.nodeID, BatchSeq: batchSeq, Clock: clockSync(q.nodeID), Events: events, Drops: drops, SentAt: time.Now().UTC()}
+	clock := clockSync(q.nodeID)
+	for i := range events {
+		events[i].ClockSkewBoundM = clock.SkewBoundMS
+	}
+	batch := Batch{NodeID: q.nodeID, BatchSeq: batchSeq, Clock: clock, Events: events, Drops: drops, SentAt: time.Now().UTC()}
 	if err := q.poster.PostBatch(ctx, batch); err != nil {
 		q.mu.Lock()
 		q.events = append(events, q.events...)
@@ -134,9 +138,15 @@ func (q *TelemetryQueue) flush(ctx context.Context) error {
 }
 
 func clockSync(nodeID string) ClockSync {
+	before := time.Now().UnixNano()
 	var monotonic unix.Timespec
 	_ = unix.ClockGettime(unix.CLOCK_MONOTONIC, &monotonic)
-	return ClockSync{MonotonicNS: monotonic.Nano(), RealtimeNS: time.Now().UnixNano(), NodeID: nodeID}
+	after := time.Now().UnixNano()
+	bound := (after - before + int64(time.Millisecond) - 1) / int64(time.Millisecond)
+	if bound < 1 {
+		bound = 1
+	}
+	return ClockSync{MonotonicNS: monotonic.Nano(), RealtimeNS: before + (after-before)/2, SkewBoundMS: bound, NodeID: nodeID}
 }
 
 type HTTPControl struct {
