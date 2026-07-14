@@ -63,6 +63,7 @@ nodeagent-check-generated:
 helm-check:
 	helm lint deploy/helm/mercutio $(HELM_TEST_ARGS)
 	helm template mercutio deploy/helm/mercutio --include-crds $(HELM_TEST_ARGS) >/dev/null
+	@! helm template mercutio deploy/helm/mercutio --set replicaCount=2 $(HELM_TEST_ARGS) >/dev/null 2>&1
 
 helm-manifest:
 	helm template mercutio deploy/helm/mercutio --include-crds $(HELM_TEST_ARGS) > deploy/manifests/mercutio.yaml

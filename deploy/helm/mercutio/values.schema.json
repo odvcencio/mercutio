@@ -2,6 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
+    "replicaCount": {
+      "type": "integer",
+      "const": 1,
+      "description": "Mercutio v1 uses a single durable control-plane writer."
+    },
     "image": {
       "type": "object",
       "properties": {
@@ -49,5 +54,5 @@
       "required": ["image"]
     }
   },
-  "required": ["image", "sandbox", "nodeAgent", "operator"]
+  "required": ["replicaCount", "image", "sandbox", "nodeAgent", "operator"]
 }
