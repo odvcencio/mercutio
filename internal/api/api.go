@@ -25,11 +25,10 @@ type Handler struct {
 	intelligence *intelligence.Service
 	proxyClient  *http.Client
 	kernelMu     sync.Mutex
-	lastBatch    map[string]uint64
 }
 
 func New(store *cell.Store, hub *transport.CellHub) *Handler {
-	return &Handler{store: store, hub: hub, intelligence: intelligence.New(), proxyClient: &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}, lastBatch: map[string]uint64{}}
+	return &Handler{store: store, hub: hub, intelligence: intelligence.New(), proxyClient: &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 
 type kernelBatch struct {
@@ -78,6 +77,10 @@ type kernelEvent struct {
 }
 
 func (h *Handler) KernelTelemetry(w http.ResponseWriter, r *http.Request) {
+	// Keep validation, durable event writes, and cursor advancement ordered for
+	// each process. The cursor itself lives in Store and survives restarts.
+	h.kernelMu.Lock()
+	defer h.kernelMu.Unlock()
 	defer r.Body.Close()
 	reader := io.Reader(http.MaxBytesReader(w, r.Body, 4<<20))
 	if r.Header.Get("Content-Encoding") == "gzip" {
@@ -118,16 +121,12 @@ func (h *Handler) KernelTelemetry(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	h.kernelMu.Lock()
-	previous := h.lastBatch[batch.NodeID]
+	previous := h.store.KernelBatchCursor(batch.NodeID)
 	if batch.BatchSeq <= previous {
-		h.kernelMu.Unlock()
 		errorJSON(w, http.StatusConflict, fmt.Errorf("kernel batch sequence %d is not newer than %d", batch.BatchSeq, previous))
 		return
 	}
 	gap := previous != 0 && batch.BatchSeq != previous+1
-	h.lastBatch[batch.NodeID] = batch.BatchSeq
-	h.kernelMu.Unlock()
 	var drops uint64
 	for _, count := range batch.Drops {
 		drops += count
@@ -182,13 +181,31 @@ func (h *Handler) KernelTelemetry(w http.ResponseWriter, r *http.Request) {
 	// A drop-only batch still enters the durable evidence stream.
 	if len(batch.Events) == 0 && drops > 0 {
 		for _, cellID := range h.store.CellIDs() {
-			snapshot, err := h.store.RecordEvent(cellID, model.Event{ID: fmt.Sprintf("kernel:%s:%d:drops", batch.NodeID, batch.BatchSeq), Kind: model.EventKernel, Source: "horizon-node-agent", Action: "kernel.telemetry.drop", Summary: "Kernel telemetry reported dropped evidence", Detail: "node=" + batch.NodeID, Danger: "high", BatchSeq: batch.BatchSeq, Drops: drops, Authenticated: true, Timestamp: now})
+			detail := "node=" + batch.NodeID
+			if gap {
+				detail += "; batch-gap=true"
+			}
+			snapshot, err := h.store.RecordEvent(cellID, model.Event{ID: fmt.Sprintf("kernel:%s:%d:drops", batch.NodeID, batch.BatchSeq), Kind: model.EventKernel, Source: "horizon-node-agent", Action: "kernel.telemetry.drop", Summary: "Kernel telemetry reported dropped evidence", Detail: detail, Danger: "high", BatchSeq: batch.BatchSeq, Drops: drops, Authenticated: true, Timestamp: now})
 			if err == nil {
 				h.hub.BroadcastCell(snapshot)
 			}
 		}
 	}
+	if err := h.store.CommitKernelBatch(batch.NodeID, batch.BatchSeq); err != nil {
+		errorJSON(w, http.StatusServiceUnavailable, fmt.Errorf("durable telemetry cursor: %w", err))
+		return
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": len(batch.Events), "batchSeq": batch.BatchSeq, "drops": drops, "batchGap": gap})
+}
+
+func (h *Handler) NodeTelemetryCursor(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) != 5 || parts[0] != "api" || parts[1] != "internal" || parts[2] != "nodes" || parts[4] != "telemetry-cursor" || strings.TrimSpace(parts[3]) == "" {
+		errorJSON(w, http.StatusBadRequest, fmt.Errorf("invalid node telemetry cursor path"))
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]any{"nodeID": parts[3], "lastBatchSeq": h.store.KernelBatchCursor(parts[3])})
 }
 
 func (h *Handler) NodeActionDecisions(w http.ResponseWriter, r *http.Request) {

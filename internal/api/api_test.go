@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -91,6 +92,49 @@ func TestKernelTelemetryPersistsGzipBatchAndEvidenceGaps(t *testing.T) {
 	}
 	if replay := post(3, 0); replay.Code != http.StatusConflict {
 		t.Fatalf("replay status=%d %s", replay.Code, replay.Body.String())
+	}
+}
+
+func TestKernelTelemetryCursorSurvivesControlPlaneRestart(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	newStore := func() *cell.Store {
+		return cell.NewStoreWithOptions(cell.Options{StatePath: statePath, CapabilityKey: []byte("test-capability-key")})
+	}
+	now := time.Now().UTC()
+	post := func(handler *Handler, sequence uint64) *httptest.ResponseRecorder {
+		payload := map[string]any{
+			"nodeID": "node-reconnect", "batchSeq": sequence,
+			"clockSync": map[string]any{"nodeID": "node-reconnect", "monotonicNs": int64(100), "realtimeNs": now.UnixNano(), "skewBoundMs": 2},
+			"events":    []map[string]any{{"cellID": "cell-demo", "nodeID": "node-reconnect", "seq": sequence, "tsNs": uint64(100), "kind": "exec", "verdict": "allow", "pid": 7}},
+			"drops":     map[string]uint64{}, "sentAt": now,
+		}
+		data, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := httptest.NewRecorder()
+		handler.KernelTelemetry(response, httptest.NewRequest(http.MethodPost, "/api/internal/telemetry/kernel", bytes.NewReader(data)))
+		return response
+	}
+
+	firstStore := newStore()
+	first := New(firstStore, transport.NewCellHub(firstStore))
+	if response := post(first, 1); response.Code != http.StatusAccepted {
+		t.Fatalf("first batch=%d %s", response.Code, response.Body.String())
+	}
+
+	secondStore := newStore()
+	second := New(secondStore, transport.NewCellHub(secondStore))
+	if response := post(second, 1); response.Code != http.StatusConflict {
+		t.Fatalf("replay after restart=%d %s", response.Code, response.Body.String())
+	}
+	cursorResponse := httptest.NewRecorder()
+	second.NodeTelemetryCursor(cursorResponse, httptest.NewRequest(http.MethodGet, "/api/internal/nodes/node-reconnect/telemetry-cursor", nil))
+	if cursorResponse.Code != http.StatusOK || !strings.Contains(cursorResponse.Body.String(), `"lastBatchSeq":1`) || cursorResponse.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("cursor=%d headers=%v body=%s", cursorResponse.Code, cursorResponse.Header(), cursorResponse.Body.String())
+	}
+	if response := post(second, 2); response.Code != http.StatusAccepted || strings.Contains(response.Body.String(), `"batchGap":true`) {
+		t.Fatalf("resumed batch=%d %s", response.Code, response.Body.String())
 	}
 }
 

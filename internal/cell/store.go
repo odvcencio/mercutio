@@ -82,20 +82,21 @@ type Options struct {
 // behind sandbox.Runtime; local development uses the memory runtime while the
 // Kubernetes deployment reconciles real pods from the installed Helm template.
 type Store struct {
-	mu           sync.RWMutex
-	cells        map[string]*record
-	nextID       uint64
-	activeID     string
-	runtime      sandbox.Runtime
-	reviews      *review.Service
-	intelligence *intelligence.Service
-	committer    review.Committer
-	secretBroker *secrets.Broker
-	worktreeRoot string
-	hubURL       string
-	evidence     *evidence.Log
-	capabilities *capability.Authority
-	statePath    string
+	mu            sync.RWMutex
+	cells         map[string]*record
+	nextID        uint64
+	activeID      string
+	runtime       sandbox.Runtime
+	reviews       *review.Service
+	intelligence  *intelligence.Service
+	committer     review.Committer
+	secretBroker  *secrets.Broker
+	worktreeRoot  string
+	hubURL        string
+	evidence      *evidence.Log
+	capabilities  *capability.Authority
+	statePath     string
+	kernelBatches map[string]uint64
 }
 
 func NewStore() *Store { return NewStoreWithOptions(Options{}) }
@@ -124,17 +125,18 @@ func NewStoreWithOptions(options Options) *Store {
 		options.SecretBroker = secrets.NewBroker()
 	}
 	s := &Store{
-		cells:        make(map[string]*record),
-		runtime:      options.Runtime,
-		reviews:      options.Reviews,
-		intelligence: options.Intelligence,
-		committer:    options.Committer,
-		secretBroker: options.SecretBroker,
-		worktreeRoot: options.WorktreeRoot,
-		hubURL:       options.HubURL,
-		evidence:     options.Evidence,
-		capabilities: capability.New(options.CapabilityKey),
-		statePath:    options.StatePath,
+		cells:         make(map[string]*record),
+		runtime:       options.Runtime,
+		reviews:       options.Reviews,
+		intelligence:  options.Intelligence,
+		committer:     options.Committer,
+		secretBroker:  options.SecretBroker,
+		worktreeRoot:  options.WorktreeRoot,
+		hubURL:        options.HubURL,
+		evidence:      options.Evidence,
+		capabilities:  capability.New(options.CapabilityKey),
+		statePath:     options.StatePath,
+		kernelBatches: make(map[string]uint64),
 	}
 	loaded, err := s.loadState()
 	if err != nil {
@@ -1835,10 +1837,51 @@ func (s *Store) RecordEvent(id string, event model.Event) (model.CellSnapshot, e
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now().UTC()
 	}
+	if event.ID != "" {
+		for _, existing := range r.events {
+			if existing.ID == event.ID {
+				return snapshotLocked(r), nil
+			}
+		}
+	}
 	s.appendEventLocked(r, event)
 	r.cell.UpdatedAt = event.Timestamp
 	r.cell.Revision++
 	return snapshotLocked(r), nil
+}
+
+// KernelBatchCursor is the last durably accepted telemetry batch for a node.
+// Node agents use it to resume monotonically after either side restarts.
+func (s *Store) KernelBatchCursor(nodeID string) uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.kernelBatches[strings.TrimSpace(nodeID)]
+}
+
+// CommitKernelBatch advances a node cursor only after every event in the batch
+// has entered durable cell state. Event IDs make a retry after a partial write
+// idempotent, while this cursor makes replay rejection survive process restart.
+func (s *Store) CommitKernelBatch(nodeID string, sequence uint64) error {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" || sequence == 0 {
+		return fmt.Errorf("node and non-zero kernel batch sequence are required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous := s.kernelBatches[nodeID]
+	if sequence <= previous {
+		return fmt.Errorf("kernel batch sequence %d is not newer than %d", sequence, previous)
+	}
+	s.kernelBatches[nodeID] = sequence
+	if err := s.persistLocked(); err != nil {
+		if previous == 0 {
+			delete(s.kernelBatches, nodeID)
+		} else {
+			s.kernelBatches[nodeID] = previous
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *Store) RequestActionApproval(id, requestID, nodeID string, cgroupID uint64, pid uint32, kind, resource string) (model.CellSnapshot, model.ActionApproval, error) {
@@ -2295,10 +2338,11 @@ func (s *Store) appendEventLocked(r *record, event model.Event) {
 }
 
 type persistedState struct {
-	Version  int               `json:"version"`
-	NextID   uint64            `json:"nextID"`
-	ActiveID string            `json:"activeID"`
-	Cells    []persistedRecord `json:"cells"`
+	Version       int               `json:"version"`
+	NextID        uint64            `json:"nextID"`
+	ActiveID      string            `json:"activeID"`
+	KernelBatches map[string]uint64 `json:"kernelBatches,omitempty"`
+	Cells         []persistedRecord `json:"cells"`
 }
 
 type persistedRecord struct {
@@ -2318,7 +2362,10 @@ func (s *Store) persistLocked() error {
 	if strings.TrimSpace(s.statePath) == "" {
 		return nil
 	}
-	state := persistedState{Version: 1, NextID: s.nextID, ActiveID: s.activeID}
+	state := persistedState{Version: 1, NextID: s.nextID, ActiveID: s.activeID, KernelBatches: make(map[string]uint64, len(s.kernelBatches))}
+	for nodeID, sequence := range s.kernelBatches {
+		state.KernelBatches[nodeID] = sequence
+	}
 	ids := make([]string, 0, len(s.cells))
 	for id := range s.cells {
 		ids = append(ids, id)
@@ -2420,6 +2467,12 @@ func (s *Store) loadState() (bool, error) {
 	}
 	s.nextID = state.NextID
 	s.activeID = state.ActiveID
+	for nodeID, sequence := range state.KernelBatches {
+		if strings.TrimSpace(nodeID) == "" || sequence == 0 {
+			return false, fmt.Errorf("invalid persisted kernel batch cursor")
+		}
+		s.kernelBatches[nodeID] = sequence
+	}
 	for _, saved := range state.Cells {
 		if saved.Cell.ID == "" {
 			return false, fmt.Errorf("persisted cell has no ID")

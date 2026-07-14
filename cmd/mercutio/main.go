@@ -151,6 +151,7 @@ func main() {
 	app.Mount("GET /api/internal/cells/{cellID}/arm-state", http.HandlerFunc(apiHandler.ArmState))
 	app.Mount("POST /api/internal/cells/{cellID}/workspace-device", http.HandlerFunc(apiHandler.WorkspaceDevice))
 	app.Mount("POST /api/internal/telemetry/kernel", authn.RequireInternal(http.HandlerFunc(apiHandler.KernelTelemetry)))
+	app.Mount("GET /api/internal/nodes/{nodeID}/telemetry-cursor", authn.RequireInternal(http.HandlerFunc(apiHandler.NodeTelemetryCursor)))
 	app.Mount("GET /api/internal/nodes/{nodeID}/action-decisions", authn.RequireInternal(http.HandlerFunc(apiHandler.NodeActionDecisions)))
 	app.Mount("GET /api/internal/nodes/{nodeID}/cells", authn.RequireInternal(http.HandlerFunc(apiHandler.NodeCells)))
 	app.Mount("POST /api/cells/{cellID}/secret-proxies", authn.Require(http.HandlerFunc(apiHandler.ConfigureSecretProxy)))

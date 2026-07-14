@@ -18,6 +18,10 @@ type BatchPoster interface {
 	PostBatch(context.Context, Batch) error
 }
 
+type telemetryCursorSource interface {
+	TelemetryCursor(context.Context, string) (uint64, error)
+}
+
 type TelemetryQueue struct {
 	mu       sync.Mutex
 	capacity int
@@ -81,6 +85,9 @@ func (q *TelemetryQueue) Run(ctx context.Context) error {
 	if q.poster == nil {
 		return fmt.Errorf("telemetry batch poster is required")
 	}
+	if err := q.reconcileCursor(ctx); err != nil {
+		return err
+	}
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -100,6 +107,19 @@ func (q *TelemetryQueue) Run(ctx context.Context) error {
 	}
 }
 
+func (q *TelemetryQueue) reconcileCursor(ctx context.Context) error {
+	if source, ok := q.poster.(telemetryCursorSource); ok {
+		sequence, err := source.TelemetryCursor(ctx, q.nodeID)
+		if err != nil {
+			return fmt.Errorf("reconcile telemetry cursor: %w", err)
+		}
+		q.mu.Lock()
+		q.sequence = sequence
+		q.mu.Unlock()
+	}
+	return nil
+}
+
 func (q *TelemetryQueue) flush(ctx context.Context) error {
 	q.mu.Lock()
 	if len(q.events) == 0 && len(q.drops) == 0 {
@@ -117,8 +137,7 @@ func (q *TelemetryQueue) flush(ctx context.Context) error {
 		drops[source] = value
 	}
 	q.drops = map[string]uint64{}
-	q.sequence++
-	batchSeq := q.sequence
+	batchSeq := q.sequence + 1
 	q.mu.Unlock()
 	clock := clockSync(q.nodeID)
 	for i := range events {
@@ -134,6 +153,9 @@ func (q *TelemetryQueue) flush(ctx context.Context) error {
 		q.mu.Unlock()
 		return err
 	}
+	q.mu.Lock()
+	q.sequence = batchSeq
+	q.mu.Unlock()
 	return nil
 }
 
@@ -181,6 +203,38 @@ func (h HTTPControl) Cells(ctx context.Context, nodeID string) ([]Cell, error) {
 		return nil, err
 	}
 	return payload.Cells, nil
+}
+
+func (h HTTPControl) TelemetryCursor(ctx context.Context, nodeID string) (uint64, error) {
+	endpoint := strings.TrimRight(h.BaseURL, "/") + "/api/internal/nodes/" + nodeID + "/telemetry-cursor"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, err
+	}
+	request.Header.Set("X-Mercutio-Event-Token", h.Token)
+	client := h.Client
+	if client == nil {
+		client = &http.Client{Timeout: 15 * time.Second}
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return 0, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("control plane returned %s", response.Status)
+	}
+	var payload struct {
+		NodeID       string `json:"nodeID"`
+		LastBatchSeq uint64 `json:"lastBatchSeq"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return 0, err
+	}
+	if payload.NodeID != nodeID {
+		return 0, fmt.Errorf("control plane returned telemetry cursor for %q", payload.NodeID)
+	}
+	return payload.LastBatchSeq, nil
 }
 
 func (h HTTPControl) Armed(ctx context.Context, cell Cell, result ArmResult) error {
