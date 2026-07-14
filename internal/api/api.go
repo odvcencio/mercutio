@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
@@ -722,7 +723,7 @@ func (h *Handler) SecretProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	for key, values := range r.Header {
 		canonical := http.CanonicalHeaderKey(key)
-		if canonical == "Authorization" || canonical == "Cookie" || canonical == "Proxy-Authorization" || strings.HasPrefix(canonical, "X-Mercutio-") {
+		if canonical == "Authorization" || canonical == "X-Api-Key" || canonical == "Private-Token" || canonical == "Cookie" || canonical == "Proxy-Authorization" || canonical == "Accept-Encoding" || strings.HasPrefix(canonical, "X-Mercutio-") {
 			continue
 		}
 		for _, value := range values {
@@ -740,18 +741,33 @@ func (h *Handler) SecretProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer response.Body.Close()
+	bodyBytes, err := io.ReadAll(io.LimitReader(response.Body, (16<<20)+1))
+	if err != nil {
+		errorJSON(w, http.StatusBadGateway, fmt.Errorf("read Tier-1 proxy response: %w", err))
+		return
+	}
+	if len(bodyBytes) > 16<<20 {
+		errorJSON(w, http.StatusBadGateway, fmt.Errorf("Tier-1 proxy response exceeds 16 MiB"))
+		return
+	}
+	if credential != "" {
+		bodyBytes = bytes.ReplaceAll(bodyBytes, []byte(credential), []byte("<redacted>"))
+	}
 	for key, values := range response.Header {
 		canonical := http.CanonicalHeaderKey(key)
-		if canonical == "Set-Cookie" || canonical == "Location" {
+		if canonical == "Set-Cookie" || canonical == "Location" || canonical == "Content-Length" {
 			continue
 		}
 		for _, value := range values {
+			if credential != "" {
+				value = strings.ReplaceAll(value, credential, "<redacted>")
+			}
 			w.Header().Add(canonical, value)
 		}
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(response.StatusCode)
-	_, _ = io.Copy(w, io.LimitReader(response.Body, 16<<20))
+	_, _ = w.Write(bodyBytes)
 }
 
 func (h *Handler) Analyze(w http.ResponseWriter, r *http.Request) {

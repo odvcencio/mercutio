@@ -6,7 +6,7 @@ require (
 	github.com/cilium/ebpf v0.21.0
 	golang.org/x/sys v0.43.0
 	m31labs.dev/continuum v0.0.0-20260713211228-a1a913208f0c
-	m31labs.dev/horizon v0.4.1-0.20260714064121-0d14fa9d61b9
+	m31labs.dev/horizon v0.4.1-0.20260714071907-36aa76e9d023
 )
 
 require (

@@ -3,12 +3,12 @@
   "generator": "hzn workbench",
   "tool": {
     "name": "hzn",
-    "version": "v0.4.1-0.20260714064121-0d14fa9d61b9",
+    "version": "v0.4.1-0.20260714071907-36aa76e9d023",
     "module": "m31labs.dev/horizon",
     "modified": false,
     "go_version": "go1.26.0"
   },
-  "generated_at": "2026-07-14T07:00:05Z",
+  "generated_at": "2026-07-14T07:19:43Z",
   "package": "mercutio",
   "sources": [
     {
@@ -66,20 +66,20 @@
     {
       "path": "generated/mercutio.bpf.c",
       "kind": "bpf_c",
-      "size": 42521,
-      "sha256": "2abc80f8975894d4acc64a03c006f745a5788f22257455c79903fbe8026e2b01"
+      "size": 42598,
+      "sha256": "393bb61b97bec7a04538e99a28dac5b0de861b98ee58fef277002511c2f19dd5"
     },
     {
       "path": "generated/mercutio.bpf.o",
       "kind": "bpf_object",
-      "size": 849312,
-      "sha256": "63c4aec204fcf1488b41d5ea4f0dab9f7b595883d45ed43954f40aa766d9c709"
+      "size": 849408,
+      "sha256": "5f8f8246ddfdd57381afb18b8bf7a9a5a9f08a5ab80cb9a835e1ecdef6a6c125"
     },
     {
       "path": "generated/mercutio.hznmap.json",
       "kind": "source_map",
-      "size": 250308,
-      "sha256": "03a0ca3bcf38f0297580fa0a35fcd33ccd7e02d00a93e607e2230a4f822f2da9"
+      "size": 250311,
+      "sha256": "e623c5bf8b68b8f8493f34a2ba53766ce5044185c1499c9c4398c02285657d1a"
     },
     {
       "path": "generated/mercutio.bindings.go",

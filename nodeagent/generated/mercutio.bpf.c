@@ -164,7 +164,9 @@ static __always_inline long hzn_lsm_file_path(void *ctx, void *dst, __u32 size) 
 static __always_inline long hzn_lsm_bprm_filename(void *ctx, void *dst, __u32 size) {
     struct linux_binprm *object = (struct linux_binprm *)(unsigned long)((__u64 *)ctx)[0];
     const void *src = object ? BPF_CORE_READ(object, filename) : 0;
-    return src ? bpf_probe_read_kernel_str(dst, size, src) : -1;
+    if (!src) return -1;
+    long copied = bpf_probe_read_kernel_str(dst, size, src);
+    return copied > 0 && (__u64)copied < size ? 0 : -1;
 }
 
 struct hzn_type_CellScopeVal {

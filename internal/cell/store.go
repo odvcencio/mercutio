@@ -1635,12 +1635,13 @@ func (s *Store) ConfigureSecretProxy(id, credential, destination, header, operat
 		return model.CellSnapshot{}, model.SecretProxyRoute{}, "", fmt.Errorf("fresh operator secret:grant capability required")
 	}
 	target, err := url.Parse(destination)
-	if err != nil || target.Scheme != "https" || target.Host == "" || target.User != nil {
+	if err != nil || target.Scheme != "https" || target.Host == "" || target.User != nil || target.Opaque != "" {
 		return model.CellSnapshot{}, model.SecretProxyRoute{}, "", fmt.Errorf("Tier-1 destination must be an exact HTTPS origin")
 	}
-	if target.RawQuery != "" || target.Fragment != "" {
-		return model.CellSnapshot{}, model.SecretProxyRoute{}, "", fmt.Errorf("Tier-1 destination may not contain query or fragment")
+	if (target.Path != "" && target.Path != "/") || target.RawPath != "" || target.RawQuery != "" || target.Fragment != "" {
+		return model.CellSnapshot{}, model.SecretProxyRoute{}, "", fmt.Errorf("Tier-1 destination must not contain a path, query, or fragment")
 	}
+	target.Path = ""
 	if header == "" {
 		header = "Authorization"
 	}

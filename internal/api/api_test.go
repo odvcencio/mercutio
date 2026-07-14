@@ -234,12 +234,15 @@ func TestPolicyApplyAPIRequiresCellScopedCapability(t *testing.T) {
 }
 
 func TestTier1ProxyInjectsCredentialOnlyAtExactHTTPSDestination(t *testing.T) {
-	var gotAuthorization, gotCookie string
+	var gotAuthorization, gotCookie, gotAPIKey, gotPrivateToken string
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuthorization = r.Header.Get("Authorization")
 		gotCookie = r.Header.Get("Cookie")
+		gotAPIKey = r.Header.Get("X-Api-Key")
+		gotPrivateToken = r.Header.Get("Private-Token")
 		w.Header().Set("Set-Cookie", "session=upstream")
-		_, _ = w.Write([]byte("ok"))
+		w.Header().Set("X-Echo-Credential", "Bearer network-secret")
+		_, _ = w.Write([]byte("echo=network-secret"))
 	}))
 	defer upstream.Close()
 	store := cell.NewStore()
@@ -270,10 +273,28 @@ func TestTier1ProxyInjectsCredentialOnlyAtExactHTTPSDestination(t *testing.T) {
 	request := httptest.NewRequest("GET", proxyURL.RequestURI(), nil)
 	request.Header.Set("Authorization", "Bearer attacker")
 	request.Header.Set("Cookie", "session=attacker")
+	request.Header.Set("X-Api-Key", "attacker-key")
+	request.Header.Set("Private-Token", "attacker-token")
 	response := httptest.NewRecorder()
 	handler.SecretProxy(response, request)
-	if response.Code != 200 || gotAuthorization != "Bearer network-secret" || gotCookie != "" || response.Header().Get("Set-Cookie") != "" {
-		t.Fatalf("response=%d auth=%q cookie=%q headers=%v", response.Code, gotAuthorization, gotCookie, response.Header())
+	if response.Code != 200 || gotAuthorization != "Bearer network-secret" || gotCookie != "" || gotAPIKey != "" || gotPrivateToken != "" || response.Header().Get("Set-Cookie") != "" {
+		t.Fatalf("response=%d auth=%q cookie=%q apiKey=%q privateToken=%q headers=%v", response.Code, gotAuthorization, gotCookie, gotAPIKey, gotPrivateToken, response.Header())
+	}
+	if strings.Contains(response.Body.String(), "network-secret") || strings.Contains(response.Header().Get("X-Echo-Credential"), "network-secret") {
+		t.Fatalf("credential reflected through Tier-1 proxy: headers=%v body=%q", response.Header(), response.Body.String())
+	}
+	if response.Body.String() != "echo=<redacted>" || response.Header().Get("X-Echo-Credential") != "Bearer <redacted>" {
+		t.Fatalf("redacted response: headers=%v body=%q", response.Header(), response.Body.String())
+	}
+}
+
+func TestTier1ProxyClientNeverFollowsUpstreamRedirects(t *testing.T) {
+	store := cell.NewStore()
+	handler := New(store, transport.NewCellHub(store))
+	redirected, _ := http.NewRequest(http.MethodGet, "https://other.example.test/", nil)
+	original, _ := http.NewRequest(http.MethodGet, "https://approved.example.test/", nil)
+	if err := handler.proxyClient.CheckRedirect(redirected, []*http.Request{original}); err != http.ErrUseLastResponse {
+		t.Fatalf("redirect policy = %v", err)
 	}
 }
 

@@ -17,7 +17,7 @@ require (
 	k8s.io/client-go v0.30.3
 	m31labs.dev/arbiter v1.9.0
 	m31labs.dev/gosx/editor v0.19.10-0.20260714053840-5fe41cbaa5b7
-	m31labs.dev/horizon v0.4.1-0.20260714064121-0d14fa9d61b9
+	m31labs.dev/horizon v0.4.1-0.20260714071907-36aa76e9d023
 )
 
 require m31labs.dev/canopy v0.18.0 // indirect

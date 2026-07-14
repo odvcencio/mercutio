@@ -63,3 +63,30 @@ func TestFailedTier2DeliveryRollsApprovalBackAndInvalidatesGrant(t *testing.T) {
 		t.Fatalf("delivery failure receipt=%+v", latest)
 	}
 }
+
+func TestTier1ProxyRequiresAnExactOrigin(t *testing.T) {
+	store := NewStore()
+	writeCap, _ := store.MintSecretCapability("cell-demo", "operator", "secret:write")
+	if _, _, err := store.PutSecret("cell-demo", "TOKEN", "value", "operator", writeCap); err != nil {
+		t.Fatal(err)
+	}
+	for _, destination := range []string{
+		"https://example.test/api",
+		"https://example.test/?tenant=one",
+		"https://example.test/#fragment",
+	} {
+		grantCap, _ := store.MintSecretCapability("cell-demo", "operator", "secret:grant")
+		if _, _, _, err := store.ConfigureSecretProxy("cell-demo", "TOKEN", destination, "Authorization", "operator", grantCap); err == nil {
+			t.Fatalf("configured non-origin destination %q", destination)
+		}
+	}
+
+	grantCap, _ := store.MintSecretCapability("cell-demo", "operator", "secret:grant")
+	_, route, _, err := store.ConfigureSecretProxy("cell-demo", "TOKEN", "https://example.test/", "Authorization", "operator", grantCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route.Destination != "https://example.test" {
+		t.Fatalf("normalized destination = %q", route.Destination)
+	}
+}
