@@ -12,19 +12,19 @@ import (
 	bindings "m31labs.dev/mercutio/nodeagent/generated"
 )
 
-func (m *ProgramManager) startReaders() {
+func (m *ProgramManager) startReaders(programs *classPrograms) {
 	if m.options.Queue == nil {
 		return
 	}
-	go m.readExecEvents()
-	go m.readFileEvents()
-	go m.readConnectEvents()
-	go m.readDropCounters()
+	go m.readExecEvents(programs)
+	go m.readFileEvents(programs)
+	go m.readConnectEvents(programs)
+	go m.readDropCounters(programs)
 }
 
-func (m *ProgramManager) readExecEvents() {
-	err := m.objects.ReadExecEvents(m.readerCtx, func(raw bindings.ExecEvent) error {
-		event, ok := m.baseEvent(raw.Hdr)
+func (m *ProgramManager) readExecEvents(programs *classPrograms) {
+	err := programs.objects.ReadExecEvents(programs.readerCtx, func(raw bindings.ExecEvent) error {
+		event, ok := m.baseEvent(programs, raw.Hdr)
 		if !ok {
 			return nil
 		}
@@ -43,8 +43,8 @@ func (m *ProgramManager) readExecEvents() {
 		m.options.Queue.Enqueue(event)
 		return nil
 	})
-	if err != nil && m.readerCtx.Err() == nil {
-		m.options.Queue.AddKernelDrops("exec-reader", 1)
+	if err != nil && programs.readerCtx.Err() == nil {
+		m.options.Queue.AddKernelDrops(fmt.Sprintf("class-%d-exec-reader", programs.class), 1)
 	}
 }
 
@@ -53,9 +53,9 @@ func argvString(value []byte) string {
 	return strings.TrimSpace(string(bytes.ReplaceAll(value, []byte{0}, []byte{' '})))
 }
 
-func (m *ProgramManager) readFileEvents() {
-	err := m.objects.ReadFileEvents(m.readerCtx, func(raw bindings.FileEvent) error {
-		event, ok := m.baseEvent(raw.Hdr)
+func (m *ProgramManager) readFileEvents(programs *classPrograms) {
+	err := programs.objects.ReadFileEvents(programs.readerCtx, func(raw bindings.FileEvent) error {
+		event, ok := m.baseEvent(programs, raw.Hdr)
 		if !ok {
 			return nil
 		}
@@ -69,14 +69,14 @@ func (m *ProgramManager) readFileEvents() {
 		m.options.Queue.Enqueue(event)
 		return nil
 	})
-	if err != nil && m.readerCtx.Err() == nil {
-		m.options.Queue.AddKernelDrops("file-reader", 1)
+	if err != nil && programs.readerCtx.Err() == nil {
+		m.options.Queue.AddKernelDrops(fmt.Sprintf("class-%d-file-reader", programs.class), 1)
 	}
 }
 
-func (m *ProgramManager) readConnectEvents() {
-	err := m.objects.ReadConnectEvents(m.readerCtx, func(raw bindings.ConnectEvent) error {
-		event, ok := m.baseEvent(raw.Hdr)
+func (m *ProgramManager) readConnectEvents(programs *classPrograms) {
+	err := programs.objects.ReadConnectEvents(programs.readerCtx, func(raw bindings.ConnectEvent) error {
+		event, ok := m.baseEvent(programs, raw.Hdr)
 		if !ok {
 			return nil
 		}
@@ -96,22 +96,22 @@ func (m *ProgramManager) readConnectEvents() {
 		m.options.Queue.Enqueue(event)
 		return nil
 	})
-	if err != nil && m.readerCtx.Err() == nil {
-		m.options.Queue.AddKernelDrops("connect-reader", 1)
+	if err != nil && programs.readerCtx.Err() == nil {
+		m.options.Queue.AddKernelDrops(fmt.Sprintf("class-%d-connect-reader", programs.class), 1)
 	}
 }
 
-func (m *ProgramManager) readDropCounters() {
+func (m *ProgramManager) readDropCounters(programs *classPrograms) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	previous := map[uint32]uint64{}
 	for {
 		select {
-		case <-m.readerCtx.Done():
+		case <-programs.readerCtx.Done():
 			return
 		case <-ticker.C:
 			for id := uint32(1); id <= 3; id++ {
-				values, found, err := m.objects.LookupDrops(id)
+				values, found, err := programs.objects.LookupDrops(id)
 				if err != nil || !found {
 					continue
 				}
@@ -120,7 +120,7 @@ func (m *ProgramManager) readDropCounters() {
 					total += value.Count
 				}
 				if total > previous[id] {
-					m.options.Queue.AddKernelDrops(fmt.Sprintf("program-%d", id), total-previous[id])
+					m.options.Queue.AddKernelDrops(fmt.Sprintf("class-%d-program-%d", programs.class, id), total-previous[id])
 				}
 				previous[id] = total
 			}
@@ -128,12 +128,12 @@ func (m *ProgramManager) readDropCounters() {
 	}
 }
 
-func (m *ProgramManager) baseEvent(header bindings.EventHeader) (KernelEvent, bool) {
+func (m *ProgramManager) baseEvent(programs *classPrograms, header bindings.EventHeader) (KernelEvent, bool) {
 	m.mu.Lock()
 	cellID, ok := m.identities[[2]uint64{header.CellLo, header.CellHi}]
 	loaded := m.cells[cellID]
 	m.mu.Unlock()
-	if !ok {
+	if !ok || loaded == nil || loaded.programs != programs {
 		return KernelEvent{}, false
 	}
 	verdict := "allow"
@@ -143,12 +143,12 @@ func (m *ProgramManager) baseEvent(header bindings.EventHeader) (KernelEvent, bo
 		verdict = "ask"
 	} else if header.Verdict == 3 {
 		verdict = "approved"
-		if loaded != nil && m.objects != nil {
+		if programs.objects != nil {
 			// A grant exists only to let the blocked syscall be retried once. The
 			// first approved kernel event consumes it; the timer in ApplyDecision
 			// remains a fail-safe if the process never retries.
 			for kind := uint32(1); kind <= 3; kind++ {
-				_ = m.objects.DeleteActionGrant(bindings.ActionKey{CgroupId: header.CgroupId, Pid: header.Pid, Kind: kind})
+				_ = programs.objects.DeleteActionGrant(bindings.ActionKey{CgroupId: header.CgroupId, Pid: header.Pid, Kind: kind})
 			}
 		}
 	}

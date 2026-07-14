@@ -38,20 +38,26 @@ type ProgramOptions struct {
 type ProgramManager struct {
 	mu           sync.Mutex
 	options      ProgramOptions
-	objects      *bindings.Objects
 	verification continuumhorizon.PreflightResult
-	globalLinks  []link.Link
-	execLSM      bool
-	fileLSM      bool
+	classes      map[uint32]*classPrograms
 	cells        map[string]*loadedCell
 	identities   map[[2]uint64]string
 	seq          atomic.Uint64
-	readerCtx    context.Context
-	cancelRead   context.CancelFunc
+}
+
+type classPrograms struct {
+	class       uint32
+	objects     *bindings.Objects
+	globalLinks []link.Link
+	execLSM     bool
+	fileLSM     bool
+	readerCtx   context.Context
+	cancelRead  context.CancelFunc
 }
 
 type loadedCell struct {
 	cell     Cell
+	programs *classPrograms
 	links    []link.Link
 	netKeys  []bindings.NetKey
 	net6Keys []bindings.Net6Key
@@ -68,21 +74,34 @@ func NewProgramManager(options ProgramOptions) (*ProgramManager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Horizon preflight: %w", err)
 	}
-	objects, err := bindings.LoadObjects(options.ObjectPath)
+	manager := &ProgramManager{options: options, verification: verification, classes: map[uint32]*classPrograms{}, cells: map[string]*loadedCell{}, identities: map[[2]uint64]string{}}
+	for class := uint32(0); class < 3; class++ {
+		programs, err := manager.loadClassPrograms(class)
+		if err != nil {
+			_ = manager.Close()
+			return nil, err
+		}
+		manager.classes[class] = programs
+	}
+	return manager, nil
+}
+
+func (m *ProgramManager) loadClassPrograms(class uint32) (*classPrograms, error) {
+	objects, err := bindings.LoadObjects(m.options.ObjectPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load class %d BPF collection: %w", class, err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	manager := &ProgramManager{options: options, objects: objects, verification: verification, cells: map[string]*loadedCell{}, identities: map[[2]uint64]string{}, readerCtx: ctx, cancelRead: cancel}
+	programs := &classPrograms{class: class, objects: objects, readerCtx: ctx, cancelRead: cancel}
 	onExec, err := objects.AttachOnExec()
 	if err != nil {
-		_ = objects.Close()
 		cancel()
-		return nil, fmt.Errorf("attach exec observation: %w", err)
+		_ = objects.Close()
+		return nil, fmt.Errorf("attach class %d exec observation: %w", class, err)
 	}
-	manager.globalLinks = append(manager.globalLinks, onExec)
-	manager.startReaders()
-	return manager, nil
+	programs.globalLinks = append(programs.globalLinks, onExec)
+	m.startReaders(programs)
+	return programs, nil
 }
 
 func (m *ProgramManager) ApplyDecision(decision ActionDecision) error {
@@ -98,14 +117,14 @@ func (m *ProgramManager) ApplyDecision(decision ActionDecision) error {
 	}
 	key := bindings.ActionKey{CgroupId: decision.CgroupID, Pid: decision.PID, Kind: kind}
 	if decision.Status == "approved" {
-		if err := m.objects.UpdateActionGrant(key, 1); err != nil {
+		if err := loaded.programs.objects.UpdateActionGrant(key, 1); err != nil {
 			return fmt.Errorf("install one-shot action grant: %w", err)
 		}
-		time.AfterFunc(10*time.Second, func() { _ = m.objects.DeleteActionGrant(key) })
+		time.AfterFunc(10*time.Second, func() { _ = loaded.programs.objects.DeleteActionGrant(key) })
 	}
 	if err := m.options.Signal(int(decision.PID), unix.SIGCONT); err != nil {
 		if decision.Status == "approved" {
-			_ = m.objects.DeleteActionGrant(key)
+			_ = loaded.programs.objects.DeleteActionGrant(key)
 		}
 		return fmt.Errorf("resume action process: %w", err)
 	}
@@ -134,33 +153,37 @@ func (m *ProgramManager) Arm(ctx context.Context, cell Cell) (ArmResult, error) 
 	if err != nil {
 		return ArmResult{}, err
 	}
+	programsForClass := m.classes[class]
+	if programsForClass == nil {
+		return ArmResult{}, fmt.Errorf("class %d program collection unavailable", class)
+	}
 	cell.Programs = append([]string(nil), programs...)
 	for _, cgroupID := range cgroupIDs {
-		if err := m.objects.UpdateCellScope(cgroupID, bindings.CellScopeVal{CellLo: lo, CellHi: hi, Class: class, FsDev: cell.WorktreeDev}); err != nil {
+		if err := programsForClass.objects.UpdateCellScope(cgroupID, bindings.CellScopeVal{CellLo: lo, CellHi: hi, Class: class, FsDev: cell.WorktreeDev}); err != nil {
 			for _, added := range cgroupIDs {
-				_ = m.objects.DeleteCellScope(added)
+				_ = programsForClass.objects.DeleteCellScope(added)
 			}
 			return ArmResult{}, fmt.Errorf("populate CellScope: %w", err)
 		}
 	}
-	loaded := &loadedCell{cell: cell}
-	if hasProgram(programs, "GateExec") && !m.execLSM {
-		execLink, err := m.objects.AttachGateExec()
+	loaded := &loadedCell{cell: cell, programs: programsForClass}
+	if hasProgram(programs, "GateExec") && !programsForClass.execLSM {
+		execLink, err := programsForClass.objects.AttachGateExec()
 		if err != nil {
-			deleteCellScopes(m.objects, cgroupIDs)
+			deleteCellScopes(programsForClass.objects, cgroupIDs)
 			return ArmResult{}, fmt.Errorf("attach exec LSM: %w", err)
 		}
-		m.globalLinks = append(m.globalLinks, execLink)
-		m.execLSM = true
+		programsForClass.globalLinks = append(programsForClass.globalLinks, execLink)
+		programsForClass.execLSM = true
 	}
-	if hasProgram(programs, "GateFileOpen") && !m.fileLSM {
-		fileLink, err := m.objects.AttachGateFileOpen()
+	if hasProgram(programs, "GateFileOpen") && !programsForClass.fileLSM {
+		fileLink, err := programsForClass.objects.AttachGateFileOpen()
 		if err != nil {
-			deleteCellScopes(m.objects, cgroupIDs)
+			deleteCellScopes(programsForClass.objects, cgroupIDs)
 			return ArmResult{}, fmt.Errorf("attach file LSM: %w", err)
 		}
-		m.globalLinks = append(m.globalLinks, fileLink)
-		m.fileLSM = true
+		programsForClass.globalLinks = append(programsForClass.globalLinks, fileLink)
+		programsForClass.fileLSM = true
 	}
 	destinations := append([]string(nil), m.options.BaseAllow...)
 	if class != 2 {
@@ -173,43 +196,43 @@ func (m *ProgramManager) Arm(ctx context.Context, cell Cell) (ArmResult, error) 
 			resolved4, resolved6, err := m.resolveNetKeys(ctx, cgroupID, destination)
 			if err != nil {
 				m.disarmLoaded(loaded)
-				deleteCellScopes(m.objects, cgroupIDs)
+				deleteCellScopes(programsForClass.objects, cgroupIDs)
 				return ArmResult{}, err
 			}
 			keys = append(keys, resolved4...)
 			keys6 = append(keys6, resolved6...)
 		}
 		for _, key := range keys {
-			if err := m.objects.UpdateNetAllow(key, 1); err != nil {
+			if err := programsForClass.objects.UpdateNetAllow(key, 1); err != nil {
 				m.disarmLoaded(loaded)
-				deleteCellScopes(m.objects, cgroupIDs)
+				deleteCellScopes(programsForClass.objects, cgroupIDs)
 				return ArmResult{}, fmt.Errorf("populate NetAllow: %w", err)
 			}
 			loaded.netKeys = append(loaded.netKeys, key)
 		}
 		for _, key := range keys6 {
-			if err := m.objects.UpdateNet6Allow(key, 1); err != nil {
+			if err := programsForClass.objects.UpdateNet6Allow(key, 1); err != nil {
 				m.disarmLoaded(loaded)
-				deleteCellScopes(m.objects, cgroupIDs)
+				deleteCellScopes(programsForClass.objects, cgroupIDs)
 				return ArmResult{}, fmt.Errorf("populate Net6Allow: %w", err)
 			}
 			loaded.net6Keys = append(loaded.net6Keys, key)
 		}
 	}
 	if hasProgram(programs, "GateConnect4") {
-		connect4, err := m.objects.AttachGateConnect4(cell.CgroupPath)
+		connect4, err := programsForClass.objects.AttachGateConnect4(cell.CgroupPath)
 		if err != nil {
 			m.disarmLoaded(loaded)
-			deleteCellScopes(m.objects, cgroupIDs)
+			deleteCellScopes(programsForClass.objects, cgroupIDs)
 			return ArmResult{}, fmt.Errorf("attach cgroup connect4: %w", err)
 		}
 		loaded.links = append(loaded.links, connect4)
 	}
 	if hasProgram(programs, "GateConnect6") {
-		connect6, err := m.objects.AttachGateConnect6(cell.CgroupPath)
+		connect6, err := programsForClass.objects.AttachGateConnect6(cell.CgroupPath)
 		if err != nil {
 			m.disarmLoaded(loaded)
-			deleteCellScopes(m.objects, cgroupIDs)
+			deleteCellScopes(programsForClass.objects, cgroupIDs)
 			return ArmResult{}, fmt.Errorf("attach cgroup connect6: %w", err)
 		}
 		loaded.links = append(loaded.links, connect6)
@@ -234,7 +257,7 @@ func (m *ProgramManager) disarmLocked(cellID string) error {
 	lo, hi := cellIdentity(cellID)
 	delete(m.identities, [2]uint64{lo, hi})
 	delete(m.cells, cellID)
-	deleteCellScopes(m.objects, cellCgroupIDs(loaded.cell))
+	deleteCellScopes(loaded.programs.objects, cellCgroupIDs(loaded.cell))
 	return nil
 }
 
@@ -258,24 +281,27 @@ func (m *ProgramManager) disarmLoaded(loaded *loadedCell) {
 		_ = item.Close()
 	}
 	for _, key := range loaded.netKeys {
-		_ = m.objects.DeleteNetAllow(key)
+		_ = loaded.programs.objects.DeleteNetAllow(key)
 	}
 	for _, key := range loaded.net6Keys {
-		_ = m.objects.DeleteNet6Allow(key)
+		_ = loaded.programs.objects.DeleteNet6Allow(key)
 	}
 }
 
 func (m *ProgramManager) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.cancelRead()
 	for id := range m.cells {
 		_ = m.disarmLocked(id)
 	}
-	for _, item := range m.globalLinks {
-		_ = item.Close()
+	for _, programs := range m.classes {
+		programs.cancelRead()
+		for _, item := range programs.globalLinks {
+			_ = item.Close()
+		}
+		_ = programs.objects.Close()
 	}
-	return m.objects.Close()
+	return nil
 }
 
 func (m *ProgramManager) armResult(profile string, programs []string) ArmResult {
