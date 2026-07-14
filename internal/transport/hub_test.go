@@ -145,6 +145,44 @@ func TestAgentHeartbeatAndCapabilityRefresh(t *testing.T) {
 	}
 }
 
+func TestPromptDeliveryUsesAgentUnicastProtocol(t *testing.T) {
+	store := cell.NewStore()
+	h := NewCellHub(store)
+	agentServer := httptest.NewServer(http.HandlerFunc(h.ServeAgentHTTP))
+	defer agentServer.Close()
+	browserServer := httptest.NewServer(http.HandlerFunc(h.ServeHTTP))
+	defer browserServer.Close()
+
+	attachToken, err := store.AttachToken("cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := dialAgentHub(t, agentServer.URL, "cell-demo", attachToken)
+	defer agent.Close()
+	if err = agent.WriteJSON(hub.Message{Event: "agent:attach", Data: rawJSON(map[string]string{"name": "agent"})}); err != nil {
+		t.Fatal(err)
+	}
+	readEvent(t, agent, "attach:welcome")
+
+	operatorToken, err := store.MintOperatorCapability("cell-demo", "operator-browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	operator, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(browserServer.URL, "http")+"?cellID=cell-demo&capability="+operatorToken, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer operator.Close()
+	if err = operator.WriteJSON(hub.Message{Event: "prompt", Data: rawJSON(map[string]string{"cellID": "cell-demo", "prompt": "please retry"})}); err != nil {
+		t.Fatal(err)
+	}
+	message := readEvent(t, agent, "prompt:deliver")
+	var payload map[string]string
+	if json.Unmarshal(message.Data, &payload) != nil || payload["cellID"] != "cell-demo" || payload["prompt"] != "please retry" {
+		t.Fatalf("prompt payload=%#v", payload)
+	}
+}
+
 func TestAgentOutputIsRedactedAndRecordedAsIntent(t *testing.T) {
 	store := cell.NewStore()
 	h := NewCellHub(store)

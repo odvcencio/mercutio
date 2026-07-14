@@ -117,7 +117,7 @@ func rejectReview(store *cell.Store, hub *transport.CellHub) action.Handler {
 		}
 		hub.BroadcastCell(snapshot)
 		if clientID := hub.AgentClient(cellID); clientID != "" {
-			hub.SendAgent(clientID, "agent:prompt", map[string]string{"cellID": cellID, "prompt": prompt})
+			hub.SendAgent(clientID, "prompt:deliver", map[string]string{"cellID": cellID, "prompt": prompt})
 		}
 		ctx.Redirect(viewPath(cellID, strings.TrimSpace(ctx.FormData["path"])))
 		return nil
@@ -229,7 +229,7 @@ func prompt(store *cell.Store, hub *transport.CellHub) action.Handler {
 		}
 		hub.BroadcastCell(snapshot)
 		if clientID := hub.AgentClient(cellID); clientID != "" {
-			hub.Send(clientID, "agent:prompt", map[string]string{"cellID": cellID, "prompt": message})
+			hub.SendAgent(clientID, "prompt:deliver", map[string]string{"cellID": cellID, "prompt": message})
 		}
 		ctx.Redirect(viewPath(cellID, strings.TrimSpace(ctx.FormData["path"])))
 		return nil

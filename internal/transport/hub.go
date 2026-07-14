@@ -390,7 +390,7 @@ func NewCellHub(store *cell.Store) *CellHub {
 		if snapshot, err := store.Prompt(cellID, payload.Prompt); err == nil {
 			h.BroadcastCell(snapshot)
 			if clientID := h.AgentClient(cellID); clientID != "" {
-				h.agentHub.Send(clientID, "agent:prompt", map[string]string{"cellID": cellID, "prompt": payload.Prompt})
+				h.agentHub.Send(clientID, "prompt:deliver", map[string]string{"cellID": cellID, "prompt": payload.Prompt})
 			}
 		}
 	})

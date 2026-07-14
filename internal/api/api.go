@@ -987,7 +987,7 @@ func (h *Handler) RejectReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if clientID := h.hub.AgentClient(parts[2]); clientID != "" {
-		h.hub.SendAgent(clientID, "agent:prompt", map[string]string{"cellID": parts[2], "prompt": prompt})
+		h.hub.SendAgent(clientID, "prompt:deliver", map[string]string{"cellID": parts[2], "prompt": prompt})
 	}
 	h.hub.BroadcastCell(snapshot)
 	writeJSON(w, http.StatusOK, snapshot)

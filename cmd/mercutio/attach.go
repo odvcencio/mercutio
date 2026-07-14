@@ -145,7 +145,7 @@ func runAttach(args []string) {
 				return
 			}
 			switch message.Event {
-			case "agent:prompt":
+			case "prompt:deliver":
 				var payload map[string]any
 				if json.Unmarshal(message.Data, &payload) == nil {
 					emit(map[string]any{"event": "prompt", "cellID": payload["cellID"], "prompt": payload["prompt"]})
