@@ -155,7 +155,7 @@ func (s *Service) Generate(baseline, current []model.File) []model.Review {
 		}
 		beforeAnalysis := s.intelligence.Analyze(path, language, oldContent)
 		afterAnalysis := s.intelligence.Analyze(path, language, newContent)
-		secretScan := s.intelligence.ScanSecrets(path, newContent)
+		secretScan := combineSecretScans(s.intelligence.ScanSecrets(path, oldContent), s.intelligence.ScanSecrets(path, newContent))
 		oldSymbols := symbolsByKey(beforeAnalysis.Symbols)
 		newSymbols := symbolsByKey(afterAnalysis.Symbols)
 		keys := make(map[string]struct{}, len(oldSymbols)+len(newSymbols))
@@ -213,6 +213,20 @@ func (s *Service) Generate(baseline, current []model.File) []model.Review {
 		}
 	}
 	return reviews
+}
+
+func combineSecretScans(scans ...intelligence.SecretScan) intelligence.SecretScan {
+	combined := intelligence.SecretScan{Status: "structural"}
+	for _, scan := range scans {
+		combined.Findings = append(combined.Findings, scan.Findings...)
+		if scan.Status == "unavailable" {
+			combined.Status = "unavailable"
+			if combined.Reason == "" {
+				combined.Reason = scan.Reason
+			}
+		}
+	}
+	return combined
 }
 
 func signatureText(content string, symbol model.Symbol) string {

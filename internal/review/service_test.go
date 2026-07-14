@@ -24,6 +24,17 @@ func TestGenerateMarksSecretShapedChangesBlocked(t *testing.T) {
 	}
 }
 
+func TestGenerateBlocksSecretShapedContentRemovedByDiff(t *testing.T) {
+	service := NewService(nil)
+	reviews := service.Generate(
+		[]model.File{{Path: "config.yaml", Language: "yaml", Content: "token: ghp_abcdefghijklmnopqrstuvwxyz\n"}},
+		[]model.File{{Path: "config.yaml", Language: "yaml", Content: "token: brokered\n"}},
+	)
+	if len(reviews) == 0 || reviews[0].Status != "blocked" || reviews[0].CommitReady || len(reviews[0].SecretFindings) == 0 {
+		t.Fatalf("removed secret was not blocked: %+v", reviews)
+	}
+}
+
 func TestAgentCommitterDelegatesApprovalToCellTransport(t *testing.T) {
 	called := false
 	committer := NewAgentCommitter(func(_ context.Context, request CommitRequest) (string, error) {

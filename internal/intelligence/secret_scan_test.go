@@ -20,3 +20,11 @@ func TestSecretScanStructuralAndFallbackAreExplicit(t *testing.T) {
 		t.Fatalf("minified=%+v", minified)
 	}
 }
+
+func TestSecretScanTimeoutFallsBackWithoutTrustingPartialTree(t *testing.T) {
+	source := "package main\n" + strings.Repeat("func generated() { println(1) }\n", 100_000)
+	scan := scanSecretsWithTimeout("main.go", source, 1)
+	if scan.Status != "unavailable" || !strings.Contains(scan.Reason, "timed out") {
+		t.Fatalf("timed-out scan=%+v", scan)
+	}
+}

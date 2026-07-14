@@ -18,6 +18,10 @@ type SecretScan struct {
 // ScanSecrets treats parsing as authoritative only when it succeeds cleanly.
 // Unavailable/hostile inputs fall back to byte-level detection and say so.
 func (s *Service) ScanSecrets(path, content string) SecretScan {
+	return scanSecretsWithTimeout(path, content, authoritativeParseTimeoutMicros)
+}
+
+func scanSecretsWithTimeout(path, content string, timeoutMicros uint64) SecretScan {
 	if knownUnreliable(path, content) {
 		return fallbackSecretScan(content, "known-unreliable minified JavaScript")
 	}
@@ -29,16 +33,19 @@ func (s *Service) ScanSecrets(path, content string) SecretScan {
 	if lang == nil {
 		return fallbackSecretScan(content, "grammar unavailable")
 	}
-	pool := gts.NewParserPool(lang, gts.WithParserPoolTimeoutMicros(2_000_000))
+	pool := gts.NewParserPool(lang, gts.WithParserPoolTimeoutMicros(timeoutMicros))
 	source := []byte(content)
 	var tree *gts.Tree
 	var err error
 	if entry.TokenSourceFactory != nil {
-		tree, err = pool.ParseWithTokenSource(source, entry.TokenSourceFactory(source, lang))
+		tree, err = pool.ParseWithTokenSourceStrict(source, entry.TokenSourceFactory(source, lang))
 	} else {
-		tree, err = pool.Parse(source)
+		tree, err = pool.ParseStrict(source)
 	}
 	if err != nil || tree == nil {
+		if tree != nil {
+			tree.Release()
+		}
 		return fallbackSecretScan(content, "parse failed or timed out")
 	}
 	defer tree.Release()
