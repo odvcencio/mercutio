@@ -1457,13 +1457,16 @@ func (s *Store) nextShadowIDLocked(cellID string) string {
 }
 
 func (s *Store) Prompt(id, prompt string) (model.CellSnapshot, error) {
+	prompt = strings.TrimSpace(prompt)
+	if err := s.validateAgentText(id, prompt); err != nil {
+		return model.CellSnapshot{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r, ok := s.cells[id]
 	if !ok {
 		return model.CellSnapshot{}, fmt.Errorf("cell %q not found", id)
 	}
-	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return model.CellSnapshot{}, fmt.Errorf("prompt is required")
 	}
@@ -1977,6 +1980,9 @@ func (s *Store) RejectReview(id, reviewID, actor, reason string) (model.CellSnap
 	if reason == "" {
 		return model.CellSnapshot{}, "", fmt.Errorf("rejection reason is required")
 	}
+	if err := s.validateAgentText(id, reason); err != nil {
+		return model.CellSnapshot{}, "", err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r, ok := s.cells[id]
@@ -1999,6 +2005,23 @@ func (s *Store) RejectReview(id, reviewID, actor, reason string) (model.CellSnap
 		return snapshotLocked(r), prompt, nil
 	}
 	return model.CellSnapshot{}, "", fmt.Errorf("review %q not found", reviewID)
+}
+
+func (s *Store) validateAgentText(id, text string) error {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	if secrets.ContainsSecretShape(text) {
+		return fmt.Errorf("agent text contains secret-shaped material")
+	}
+	contains, err := s.secretBroker.ContainsMaterial(id, text)
+	if err != nil {
+		return fmt.Errorf("verify agent text against secret broker: %w", err)
+	}
+	if contains {
+		return fmt.Errorf("agent text contains secret material")
+	}
+	return nil
 }
 
 func (s *Store) Attach(id, token, agentID, name string) (model.CellSnapshot, error) {

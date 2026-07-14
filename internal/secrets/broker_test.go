@@ -17,6 +17,14 @@ func TestBrokerStoresByReceiptWithoutExposingValue(t *testing.T) {
 	if _, _, err := broker.Get("cell-1", "github-token", ""); err == nil {
 		t.Fatal("broker allowed access without capability")
 	}
+	contains, err := broker.ContainsMaterial("cell-1", "please use ghp_abcdefghijklmnopqrstuvwxyz for this task")
+	if err != nil || !contains {
+		t.Fatalf("known secret was not recognized in agent text: contains=%v err=%v", contains, err)
+	}
+	contains, err = broker.ContainsMaterial("cell-1", "please use the broker for this task")
+	if err != nil || contains {
+		t.Fatalf("safe agent text was rejected: contains=%v err=%v", contains, err)
+	}
 }
 
 func TestFindSecretSpansReturnsExactNonOverlappingRanges(t *testing.T) {

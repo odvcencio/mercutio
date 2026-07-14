@@ -139,6 +139,39 @@ func (b *Broker) List(cellID string) ([]Descriptor, error) {
 	return out, nil
 }
 
+// ContainsMaterial checks whether text contains a value held by the broker
+// without returning that value to the caller or creating an agent-visible
+// secret read. It is used to fail closed at prompt boundaries.
+func (b *Broker) ContainsMaterial(cellID, text string) (bool, error) {
+	if b == nil || text == "" {
+		return false, nil
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.store == nil {
+		for _, value := range b.values[cellID] {
+			if value != "" && strings.Contains(text, value) {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+	descriptors, err := b.store.List(cellID)
+	if err != nil {
+		return false, err
+	}
+	for _, descriptor := range descriptors {
+		value, _, err := b.store.Get(cellID, descriptor.Name)
+		if err != nil {
+			return false, err
+		}
+		if value != "" && strings.Contains(text, value) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func RedactedValue(value string) string {
 	n := len([]rune(value))
 	tail := ""

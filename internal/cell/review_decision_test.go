@@ -48,6 +48,13 @@ func TestSecretReviewRequiresExplicitAcknowledgmentAndRejectReason(t *testing.T)
 	if _, _, err = store.RejectReview("cell-demo", id, "operator", ""); err == nil {
 		t.Fatal("empty rejection accepted")
 	}
+	writeCap, _ := store.MintSecretCapability("cell-demo", "operator", "secret:write")
+	if _, _, err = store.PutSecret("cell-demo", "REVIEW_TOKEN", "credential-value", "operator", writeCap); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = store.RejectReview("cell-demo", id, "operator", "retry with credential-value"); err == nil {
+		t.Fatal("secret-bearing rejection reason accepted for agent delivery")
+	}
 	snapshot, prompt, err := store.RejectReview("cell-demo", id, "operator", "use broker instead")
 	if err != nil || prompt == "" {
 		t.Fatalf("reject=%q %v", prompt, err)

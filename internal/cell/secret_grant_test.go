@@ -36,6 +36,25 @@ func TestTier2GrantIsAskHumanBoundedAndSingleUse(t *testing.T) {
 	}
 }
 
+func TestPromptRejectsSecretMaterialBeforeAgentDelivery(t *testing.T) {
+	store := NewStore()
+	writeCap, _ := store.MintSecretCapability("cell-demo", "operator", "secret:write")
+	if _, _, err := store.PutSecret("cell-demo", "SANDBOX_KEY", "credential-value", "operator", writeCap); err != nil {
+		t.Fatal(err)
+	}
+	for _, prompt := range []string{
+		"run with credential-value",
+		"run with token=ghp_abcdefghijklmnopqrstuvwxyz",
+	} {
+		if _, err := store.Prompt("cell-demo", prompt); err == nil || !strings.Contains(err.Error(), "secret") {
+			t.Fatalf("secret prompt %q accepted: %v", prompt, err)
+		}
+	}
+	if _, err := store.Prompt("cell-demo", "request the credential through the broker"); err != nil {
+		t.Fatalf("safe prompt rejected: %v", err)
+	}
+}
+
 func TestFailedTier2DeliveryRollsApprovalBackAndInvalidatesGrant(t *testing.T) {
 	store := NewStore()
 	writeCap, _ := store.MintSecretCapability("cell-demo", "operator", "secret:write")

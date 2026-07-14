@@ -953,6 +953,9 @@ func (h *Handler) Prompt(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusBadRequest, err)
 		return
 	}
+	if clientID := h.hub.AgentClient(id); clientID != "" {
+		h.hub.SendAgent(clientID, "prompt:deliver", map[string]string{"cellID": id, "prompt": strings.TrimSpace(input.Prompt)})
+	}
 	h.hub.BroadcastCell(snapshot)
 	writeJSON(w, http.StatusOK, snapshot)
 }
