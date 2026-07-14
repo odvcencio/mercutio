@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	graftentity "github.com/odvcencio/graft/pkg/entity"
 	"github.com/pmezard/go-difflib/difflib"
 	"m31labs.dev/mercutio/internal/intelligence"
 	"m31labs.dev/mercutio/internal/model"
@@ -21,13 +22,15 @@ type entity struct {
 	span model.Range
 }
 
+const structuralParseTimeoutMicros = uint64(250_000)
+
 func Merge(service *intelligence.Service, path, language, base, human, agent string) Result {
 	if service == nil {
 		service = intelligence.New()
 	}
-	baseEntities, baseOK := entities(service.Analyze(path, language, base), base)
-	humanEntities, humanOK := entities(service.Analyze(path, language, human), human)
-	agentEntities, agentOK := entities(service.Analyze(path, language, agent), agent)
+	baseEntities, baseOK := entities(path, service.Analyze(path, language, base), base)
+	humanEntities, humanOK := entities(path, service.Analyze(path, language, human), human)
+	agentEntities, agentOK := entities(path, service.Analyze(path, language, agent), agent)
 	if !baseOK || !humanOK || !agentOK {
 		return mergeLines(path, base, human, agent)
 	}
@@ -193,18 +196,26 @@ func compactStrings(values []string) []string {
 	return out
 }
 
-func entities(analysis model.Analysis, content string) (map[string]entity, bool) {
+func entities(path string, analysis model.Analysis, content string) (map[string]entity, bool) {
 	if analysis.Error != "" || analysis.HasErrors {
 		return nil, false
 	}
+	extracted, err := graftentity.ExtractWithOptions(path, []byte(content), graftentity.ExtractOptions{ParseTimeoutMicros: structuralParseTimeoutMicros})
+	if err != nil {
+		return nil, false
+	}
 	out := map[string]entity{}
-	for _, symbol := range analysis.Symbols {
-		start, end := int(symbol.Range.StartByte), int(symbol.Range.EndByte)
+	for i := range extracted.Entities {
+		item := &extracted.Entities[i]
+		start, end := int(item.StartByte), int(item.EndByte)
 		if start < 0 || end < start || end > len(content) {
 			return nil, false
 		}
-		key := "decl:" + symbol.Kind + "::" + symbol.Name
-		out[key] = entity{text: content[start:end], span: symbol.Range}
+		key := item.IdentityKey()
+		if key == "" {
+			return nil, false
+		}
+		out[key] = entity{text: content[start:end], span: model.Range{StartByte: item.StartByte, EndByte: item.EndByte}}
 	}
 	if len(out) == 0 && strings.TrimSpace(content) != "" {
 		return nil, false
