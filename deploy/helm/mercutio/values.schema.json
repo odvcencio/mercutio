@@ -24,6 +24,13 @@
       },
       "required": ["agentImage", "attachImage", "graftImage", "armgateImage"]
     },
+    "operator": {
+      "type": "object",
+      "properties": {
+        "email": {"type": "string", "format": "email", "minLength": 3}
+      },
+      "required": ["email"]
+    },
     "nodeAgent": {
       "type": "object",
       "properties": {
@@ -42,5 +49,5 @@
       "required": ["image"]
     }
   },
-  "required": ["image", "sandbox", "nodeAgent"]
+  "required": ["image", "sandbox", "nodeAgent", "operator"]
 }

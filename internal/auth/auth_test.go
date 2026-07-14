@@ -82,3 +82,55 @@ func TestTokenBoundary(t *testing.T) {
 		t.Fatalf("authorized status = %d", authorized.Code)
 	}
 }
+
+func TestProductionConfigurationRequiresStableSessionAndOperatorIdentity(t *testing.T) {
+	t.Setenv("MERCUTIO_DEV_MODE", "0")
+	t.Setenv("MERCUTIO_SESSION_SECRET", "")
+	t.Setenv("MERCUTIO_OPERATOR_EMAIL", "")
+	if err := FromEnv().Validate(); err == nil {
+		t.Fatal("production auth accepted ephemeral configuration")
+	}
+	t.Setenv("MERCUTIO_SESSION_SECRET", "a-stable-production-session-secret-with-enough-entropy")
+	t.Setenv("MERCUTIO_OPERATOR_EMAIL", "operator@example.test")
+	if err := FromEnv().Validate(); err != nil {
+		t.Fatalf("valid production auth: %v", err)
+	}
+}
+
+func TestMagicLinkAndPasskeyRegistrationAreOperatorBound(t *testing.T) {
+	t.Setenv("MERCUTIO_DEV_MODE", "1")
+	t.Setenv("MERCUTIO_OPERATOR_EMAIL", "operator@example.test")
+	authn := FromEnv()
+	wrong := httptest.NewRequest(http.MethodPost, "/auth/magic-link", strings.NewReader("email=attacker%40example.test"))
+	wrong.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	authn.SessionMiddleware(authn.MagicLinkRequest()).ServeHTTP(response, wrong)
+	if response.Code != http.StatusBadRequest || strings.Contains(response.Body.String(), "token=") {
+		t.Fatalf("wrong identity response=%d %s", response.Code, response.Body.String())
+	}
+
+	register := httptest.NewRequest(http.MethodPost, "/auth/passkey/register/options", strings.NewReader(`{"email":"operator@example.test"}`))
+	register.Header.Set("Content-Type", "application/json")
+	registerResponse := httptest.NewRecorder()
+	authn.SessionMiddleware(authn.WebAuthnRegisterOptions()).ServeHTTP(registerResponse, register)
+	if registerResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated passkey registration=%d %s", registerResponse.Code, registerResponse.Body.String())
+	}
+}
+
+func TestProductionSessionCookieHasSecurityAttributes(t *testing.T) {
+	t.Setenv("MERCUTIO_DEV_MODE", "0")
+	t.Setenv("MERCUTIO_SESSION_SECRET", "a-stable-production-session-secret-with-enough-entropy")
+	t.Setenv("MERCUTIO_OPERATOR_EMAIL", "operator@example.test")
+	authn := FromEnv()
+	handler := authn.SessionMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = authn.CSRFToken(r)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "https://mercutio.example.test/", nil))
+	cookies := response.Result().Cookies()
+	if len(cookies) == 0 || !cookies[0].HttpOnly || !cookies[0].Secure || cookies[0].SameSite == http.SameSiteDefaultMode {
+		t.Fatalf("insecure production cookie: %+v", cookies)
+	}
+}

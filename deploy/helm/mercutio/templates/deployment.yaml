@@ -40,24 +40,38 @@ spec:
               value: "9011"
             - name: MERCUTIO_DEV_MODE
               value: {{ .Values.operator.devMode | quote }}
+            - name: MERCUTIO_OPERATOR_EMAIL
+              value: {{ required "operator.email is required" .Values.operator.email | quote }}
             - name: MERCUTIO_OPERATOR_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.operator.tokenSecret.name }}
                   key: {{ .Values.operator.tokenSecret.key }}
+                  optional: false
+            - name: MERCUTIO_SMTP_ADDR
+              value: {{ .Values.operator.smtp.address | quote }}
+            - name: MERCUTIO_SMTP_FROM
+              value: {{ .Values.operator.smtp.from | quote }}
+            - name: MERCUTIO_SMTP_USERNAME
+              value: {{ .Values.operator.smtp.username | quote }}
+            - name: MERCUTIO_SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.operator.smtp.passwordSecret.name }}
+                  key: {{ .Values.operator.smtp.passwordSecret.key }}
                   optional: true
             - name: MERCUTIO_SESSION_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.operator.sessionSecret.name }}
                   key: {{ .Values.operator.sessionSecret.key }}
-                  optional: true
+                  optional: false
             - name: MERCUTIO_EVENT_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.operator.eventTokenSecret.name }}
                   key: {{ .Values.operator.eventTokenSecret.key }}
-                  optional: true
+                  optional: false
             - name: MERCUTIO_CAPABILITY_SECRET
               valueFrom:
                 secretKeyRef:

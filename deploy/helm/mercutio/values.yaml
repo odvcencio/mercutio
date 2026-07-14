@@ -15,6 +15,14 @@ internalTLS:
 
 operator:
   devMode: "0"
+  email: ""
+  smtp:
+    address: ""
+    from: ""
+    username: ""
+    passwordSecret:
+      name: mercutio-smtp
+      key: password
   tokenSecret:
     name: mercutio-operator-token
     key: token

@@ -93,6 +93,12 @@ func main() {
 	apiHandler := api.New(store, cellHub)
 	browserActions := actions.New(store, cellHub)
 	authn := auth.FromEnv()
+	if err := authn.Validate(); err != nil {
+		log.Fatal(err)
+	}
+	if envOr("MERCUTIO_DEV_MODE", "1") == "0" && strings.TrimSpace(os.Getenv("MERCUTIO_CAPABILITY_SECRET")) == "" {
+		log.Fatal("MERCUTIO_CAPABILITY_SECRET is required outside development mode")
+	}
 
 	_, thisFile, _, _ := runtime.Caller(0)
 	root := filepath.Join(filepath.Dir(thisFile), "..", "..")

@@ -16,7 +16,8 @@ helm install mercutio deploy/helm/mercutio --namespace mercutio-system --create-
   --set sandbox.agentImage="example.invalid/agent@$digest" \
   --set sandbox.attachImage="example.invalid/mercutio@$digest" \
   --set sandbox.graftImage="example.invalid/graft@$digest" \
-  --set sandbox.armgateImage="example.invalid/mercutio@$digest"
+  --set sandbox.armgateImage="example.invalid/mercutio@$digest" \
+  --set operator.email="operator@example.invalid"
 
 kubectl get crd cells.mercutio.dev
 for profile in strict standard open; do

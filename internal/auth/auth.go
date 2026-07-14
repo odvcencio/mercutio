@@ -1,10 +1,15 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
+	"net/mail"
+	"net/smtp"
 	"os"
 	"strings"
 
@@ -26,6 +31,7 @@ type Auth struct {
 	webAuthn            *gosxauth.WebAuthn
 	operatorEmail       string
 	requireInternalMTLS bool
+	configurationError  error
 }
 
 func FromEnv() *Auth {
@@ -34,6 +40,9 @@ func FromEnv() *Auth {
 		authn.eventToken = authn.token
 	}
 	secret := strings.TrimSpace(os.Getenv("MERCUTIO_SESSION_SECRET"))
+	if secret == "" && !authn.devMode {
+		authn.configurationError = fmt.Errorf("MERCUTIO_SESSION_SECRET is required outside development mode")
+	}
 	if secret == "" && authn.devMode {
 		secret = "mercutio-development-session-secret"
 	}
@@ -41,6 +50,9 @@ func FromEnv() *Auth {
 		secret = randomSessionSecret()
 	}
 	authn.operatorEmail = strings.ToLower(strings.TrimSpace(os.Getenv("MERCUTIO_OPERATOR_EMAIL")))
+	if authn.operatorEmail == "" && !authn.devMode {
+		authn.configurationError = fmt.Errorf("MERCUTIO_OPERATOR_EMAIL is required outside development mode")
+	}
 	authn.sessions, _ = session.New(secret, session.Options{
 		CookieName: "mercutio_session",
 		HTTPOnly:   true,
@@ -52,11 +64,16 @@ func FromEnv() *Auth {
 		return authn
 	}
 	authn.manager = gosxauth.New(authn.sessions, gosxauth.Options{LoginPath: "/login"})
-	authn.magicLinks = authn.manager.MagicLinks(gosxauth.MagicLinkOptions{
-		Path:        "/auth/magic-link",
-		SuccessPath: "/",
-		FailurePath: "/login",
-	})
+	sender, senderConfigured, senderErr := smtpMagicLinkSenderFromEnv()
+	if senderErr != nil {
+		authn.configurationError = senderErr
+	}
+	if authn.devMode || senderConfigured {
+		authn.magicLinks = authn.manager.MagicLinks(gosxauth.MagicLinkOptions{
+			Path: "/auth/magic-link", SuccessPath: "/", FailurePath: "/login", Sender: sender,
+			Resolver: gosxauth.MagicLinkResolverFunc(authn.resolveOperator),
+		})
+	}
 	authn.webAuthn = authn.manager.WebAuthn(gosxauth.WebAuthnOptions{
 		RPID:             envOr("MERCUTIO_AUTH_RP_ID", "127.0.0.1"),
 		RPName:           "Mercutio",
@@ -64,8 +81,27 @@ func FromEnv() *Auth {
 		SuccessPath:      "/",
 		FailurePath:      "/login",
 		UserVerification: "preferred",
+		Resolver:         gosxauth.WebAuthnResolverFunc(authn.resolveOperator),
 	})
 	return authn
+}
+
+func (a *Auth) Validate() error {
+	if a == nil {
+		return fmt.Errorf("authentication is unavailable")
+	}
+	return a.configurationError
+}
+
+func (a *Auth) resolveOperator(_ context.Context, value string) (gosxauth.User, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if a.operatorEmail != "" && value != a.operatorEmail {
+		return gosxauth.User{}, fmt.Errorf("operator identity is not permitted")
+	}
+	if value == "" {
+		value = a.operatorEmail
+	}
+	return gosxauth.User{ID: value, Email: value, Name: "Mercutio operator"}, nil
 }
 
 // CSRFToken returns the request-bound token used by GoSX browser actions.
@@ -183,14 +219,14 @@ func (a *Auth) WebAuthnRegisterOptions() http.Handler {
 	if a == nil || a.webAuthn == nil {
 		return unavailableHandler("passkey authentication is not configured")
 	}
-	return a.webAuthn.RegisterOptionsHandler()
+	return a.requireOperatorSession(a.webAuthn.RegisterOptionsHandler())
 }
 
 func (a *Auth) WebAuthnRegister() http.Handler {
 	if a == nil || a.webAuthn == nil {
 		return unavailableHandler("passkey authentication is not configured")
 	}
-	return a.webAuthn.RegisterHandler()
+	return a.requireOperatorSession(a.webAuthn.RegisterHandler())
 }
 
 func (a *Auth) WebAuthnLoginOptions() http.Handler {
@@ -256,4 +292,51 @@ func randomSessionSecret() string {
 		return "mercutio-ephemeral-session-secret"
 	}
 	return hex.EncodeToString(buffer)
+}
+
+func (a *Auth) requireOperatorSession(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, ok := a.manager.Current(r)
+		if !ok || (a.operatorEmail != "" && !strings.EqualFold(user.Email, a.operatorEmail) && !strings.EqualFold(user.ID, a.operatorEmail)) {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authenticated operator session required"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func smtpMagicLinkSenderFromEnv() (gosxauth.MagicLinkSender, bool, error) {
+	address := strings.TrimSpace(os.Getenv("MERCUTIO_SMTP_ADDR"))
+	fromValue := strings.TrimSpace(os.Getenv("MERCUTIO_SMTP_FROM"))
+	username := strings.TrimSpace(os.Getenv("MERCUTIO_SMTP_USERNAME"))
+	password := os.Getenv("MERCUTIO_SMTP_PASSWORD")
+	if address == "" && fromValue == "" && username == "" && password == "" {
+		return nil, false, nil
+	}
+	if address == "" || fromValue == "" {
+		return nil, false, fmt.Errorf("MERCUTIO_SMTP_ADDR and MERCUTIO_SMTP_FROM must be configured together")
+	}
+	from, err := mail.ParseAddress(fromValue)
+	if err != nil {
+		return nil, false, fmt.Errorf("invalid MERCUTIO_SMTP_FROM: %w", err)
+	}
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, false, fmt.Errorf("MERCUTIO_SMTP_ADDR must include host and port: %w", err)
+	}
+	if (username == "") != (password == "") {
+		return nil, false, fmt.Errorf("MERCUTIO_SMTP_USERNAME and MERCUTIO_SMTP_PASSWORD must be configured together")
+	}
+	return gosxauth.MagicLinkSenderFunc(func(_ context.Context, delivery gosxauth.MagicLinkDelivery) error {
+		to, err := mail.ParseAddress(delivery.Email)
+		if err != nil {
+			return err
+		}
+		var auth smtp.Auth
+		if username != "" {
+			auth = smtp.PlainAuth("", username, password, host)
+		}
+		message := []byte("From: " + from.String() + "\r\nTo: " + to.String() + "\r\nSubject: Mercutio sign-in\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nOpen this single-use link to sign in to Mercutio:\r\n" + delivery.URL + "\r\n")
+		return smtp.SendMail(address, auth, from.Address, []string{to.Address}, message)
+	}), true, nil
 }

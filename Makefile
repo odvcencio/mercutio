@@ -5,7 +5,7 @@ SHELL := /bin/bash
 GO ?= go
 HZN ?= $(GO) run m31labs.dev/horizon/cmd/hzn
 TEST_DIGEST := sha256:1111111111111111111111111111111111111111111111111111111111111111
-HELM_TEST_ARGS := --set image.digest=$(TEST_DIGEST) --set nodeAgent.image.digest=$(TEST_DIGEST) --set sandbox.agentImage=example.invalid/agent@$(TEST_DIGEST) --set sandbox.attachImage=example.invalid/mercutio@$(TEST_DIGEST) --set sandbox.graftImage=example.invalid/graft@$(TEST_DIGEST) --set sandbox.armgateImage=example.invalid/mercutio@$(TEST_DIGEST)
+HELM_TEST_ARGS := --set image.digest=$(TEST_DIGEST) --set nodeAgent.image.digest=$(TEST_DIGEST) --set sandbox.agentImage=example.invalid/agent@$(TEST_DIGEST) --set sandbox.attachImage=example.invalid/mercutio@$(TEST_DIGEST) --set sandbox.graftImage=example.invalid/graft@$(TEST_DIGEST) --set sandbox.armgateImage=example.invalid/mercutio@$(TEST_DIGEST) --set operator.email=operator@example.invalid
 
 run:
 	$(GO) run ./cmd/mercutio

@@ -1044,24 +1044,38 @@ spec:
               value: "9011"
             - name: MERCUTIO_DEV_MODE
               value: "0"
+            - name: MERCUTIO_OPERATOR_EMAIL
+              value: "operator@example.invalid"
             - name: MERCUTIO_OPERATOR_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: mercutio-operator-token
                   key: token
+                  optional: false
+            - name: MERCUTIO_SMTP_ADDR
+              value: ""
+            - name: MERCUTIO_SMTP_FROM
+              value: ""
+            - name: MERCUTIO_SMTP_USERNAME
+              value: ""
+            - name: MERCUTIO_SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mercutio-smtp
+                  key: password
                   optional: true
             - name: MERCUTIO_SESSION_SECRET
               valueFrom:
                 secretKeyRef:
                   name: mercutio-session-secret
                   key: secret
-                  optional: true
+                  optional: false
             - name: MERCUTIO_EVENT_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: mercutio-event-token
                   key: token
-                  optional: true
+                  optional: false
             - name: MERCUTIO_CAPABILITY_SECRET
               valueFrom:
                 secretKeyRef:
