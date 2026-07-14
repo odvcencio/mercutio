@@ -68,13 +68,8 @@ func main() {
 			log.Fatal(err)
 		}
 	}
-	committer := review.Committer(review.LocalCommitter{})
-	if envOr("MERCUTIO_COMMITTER", "local") == "buckley" {
-		committer = review.NewBuckleyCommitter(envOr("BUCKLEY_BINARY", "buckley"))
-	}
 	store := cell.NewStoreWithOptions(cell.Options{
 		Runtime:       sandboxRuntime,
-		Committer:     committer,
 		WorktreeRoot:  os.Getenv("MERCUTIO_WORKTREE_ROOT"),
 		HubURL:        envOr("MERCUTIO_HUB_URL", "http://mercutio:9011/gosx/hub/agent"),
 		Evidence:      mustEvidence(envOr("MERCUTIO_EVIDENCE_PATH", "./data/evidence.jsonl")),
@@ -83,9 +78,10 @@ func main() {
 		SecretBroker:  secretBroker,
 	})
 	cellHub := transport.NewCellHub(store)
-	if envOr("MERCUTIO_COMMITTER", "local") == "agent" {
-		store.SetCommitter(review.NewAgentCommitter(cellHub.RequestAgentCommit))
-	}
+	// Approved revisions are always committed by Buckley inside the Cell.
+	// Keeping this unconditional prevents an environment override from moving
+	// an observed, enforced worktree action into the Control Plane.
+	store.SetCommitter(review.NewAgentCommitter(cellHub.RequestAgentCommit))
 	apiHandler := api.New(store, cellHub)
 	browserActions := actions.New(store, cellHub)
 	authn := auth.FromEnv()

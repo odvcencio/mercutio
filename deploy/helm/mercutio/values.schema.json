@@ -36,6 +36,17 @@
       },
       "required": ["email"]
     },
+    "review": {
+      "type": "object",
+      "properties": {
+        "committer": {
+          "type": "string",
+          "const": "agent",
+          "description": "Commits execute through the Attach Sidecar inside the Cell."
+        }
+      },
+      "required": ["committer"]
+    },
     "nodeAgent": {
       "type": "object",
       "properties": {
@@ -54,5 +65,5 @@
       "required": ["image"]
     }
   },
-  "required": ["replicaCount", "image", "sandbox", "nodeAgent", "operator"]
+  "required": ["replicaCount", "image", "sandbox", "nodeAgent", "operator", "review"]
 }

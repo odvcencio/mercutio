@@ -234,6 +234,8 @@ m31labs.dev/gosx/editor v0.19.10-0.20260714074939-4961f3405c2f h1:uDVbO38+e5M1mu
 m31labs.dev/gosx/editor v0.19.10-0.20260714074939-4961f3405c2f/go.mod h1:o6diDTcLKWTXYIRFWwC8IB38V3icayVBZjchx9eaCeY=
 m31labs.dev/gosx/editor v0.19.10-0.20260714145351-9eb170ff6e5e h1:RA72dVqwLNSqp/EAwUoKH15BmIirqj3xSCD/g+mRKno=
 m31labs.dev/gosx/editor v0.19.10-0.20260714145351-9eb170ff6e5e/go.mod h1:o6diDTcLKWTXYIRFWwC8IB38V3icayVBZjchx9eaCeY=
+m31labs.dev/gosx/editor v0.19.10-0.20260714150401-58b73e6d9e6e h1:YPDKQgL/Uskf4xRLU0R0PJqM/RuyjWlwMpQEr4HeEHY=
+m31labs.dev/gosx/editor v0.19.10-0.20260714150401-58b73e6d9e6e/go.mod h1:o6diDTcLKWTXYIRFWwC8IB38V3icayVBZjchx9eaCeY=
 m31labs.dev/horizon v0.4.1-0.20260714060137-ec6fed43c7d8 h1:KL+yc2Wh244GtIRErX5YR5Qqr/XuAiIjYWjaMNHNigI=
 m31labs.dev/horizon v0.4.1-0.20260714060137-ec6fed43c7d8/go.mod h1:OU3kizRo16gTDgUMG61HkXTZI39ankCbwheQQXtxyhc=
 m31labs.dev/horizon v0.4.1-0.20260714063934-0af93fb0c3bc h1:26FsZ/47hfqoc1PLaBxvgy4AnTgROYkk1xvMmzxDMTA=

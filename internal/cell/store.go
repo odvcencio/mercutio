@@ -435,7 +435,7 @@ func (s *Store) AdoptShadow(id, shadowID, actor string) (model.CellSnapshot, err
 	r.cell.Shadows[index].Status = "adopted"
 	r.cell.Shadows[index].ResolvedAt = now
 	r.cell.Shadows = append(r.cell.Shadows, humanShadow)
-	s.appendEvidenceLocked(r, "shadow-resolution", map[string]string{"shadowID": shadow.ID, "status": "adopted", "preservedShadowID": humanShadow.ID})
+	_ = s.appendEvidenceLocked(r, "shadow-resolution", map[string]string{"shadowID": shadow.ID, "status": "adopted", "preservedShadowID": humanShadow.ID})
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
 	s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: defaultValue(actor, "operator"), Action: "shadow.adopt", Summary: "Shadow Revision adopted into live buffer", Detail: "shadow=" + shadow.ID + "; path=" + shadow.Path, Danger: "medium", Authenticated: true, Timestamp: now})
@@ -510,7 +510,7 @@ func (s *Store) MergeShadow(id, shadowID, actor string) (model.CellSnapshot, sha
 	r.cell.Shadows[index].ResolvedAt = now
 	r.cell.Shadows[index].Intelligence = result.Intelligence
 	r.history = append(r.history, editOperation{Actor: defaultValue(actor, "operator"), Path: shadow.Path, Inserted: inserted, Deleted: deleted, CreatedAt: now})
-	s.appendEvidenceLocked(r, "shadow-resolution", map[string]string{"shadowID": shadow.ID, "status": "merged", "intelligence": result.Intelligence})
+	_ = s.appendEvidenceLocked(r, "shadow-resolution", map[string]string{"shadowID": shadow.ID, "status": "merged", "intelligence": result.Intelligence})
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
 	s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: defaultValue(actor, "operator"), Action: "shadow.merge", Summary: "Shadow Revision structurally merged", Detail: "shadow=" + shadow.ID + "; path=" + shadow.Path, Danger: "medium", Authenticated: true, Timestamp: now})
@@ -540,7 +540,7 @@ func (s *Store) DiscardShadow(id, shadowID, actor, reason string) (model.CellSna
 		r.cell.Shadows[i].Status = "discarded"
 		r.cell.Shadows[i].DiscardReason = secrets.RedactText(reason)
 		r.cell.Shadows[i].ResolvedAt = now
-		s.appendEvidenceLocked(r, "shadow-resolution", map[string]string{"shadowID": shadow.ID, "status": "discarded", "reason": secrets.RedactText(reason)})
+		_ = s.appendEvidenceLocked(r, "shadow-resolution", map[string]string{"shadowID": shadow.ID, "status": "discarded", "reason": secrets.RedactText(reason)})
 		r.cell.UpdatedAt = now
 		r.cell.Revision++
 		s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: defaultValue(actor, "operator"), Action: "shadow.discard", Summary: "Shadow Revision discarded with receipt", Detail: "shadow=" + shadow.ID + "; reason=" + secrets.RedactText(reason), Danger: "medium", Authenticated: true, Timestamp: now})
@@ -579,8 +579,11 @@ func (s *Store) CollectShadowGarbage(now time.Time) int {
 				kept = append(kept, shadow)
 				continue
 			}
+			if err := s.appendEvidenceLocked(r, "shadow-gc-receipt", map[string]string{"shadowID": shadow.ID, "author": shadow.Author, "baseHash": shadow.BaseHash, "status": shadow.Status, "reason": reason}); err != nil {
+				kept = append(kept, shadow)
+				continue
+			}
 			removed++
-			s.appendEvidenceLocked(r, "shadow-gc-receipt", map[string]string{"shadowID": shadow.ID, "author": shadow.Author, "baseHash": shadow.BaseHash, "status": shadow.Status, "reason": reason})
 		}
 		r.cell.Shadows = kept
 	}
@@ -835,7 +838,7 @@ func (s *Store) ApplyDiskEdit(id, path, base, content, actor string) (model.Cell
 		shadow := model.ShadowRevision{ID: s.nextShadowIDLocked(id), Path: path, Author: defaultValue(actor, "agent-disk"), Base: base, Before: current, After: content, BaseHash: contentHash(base), Reason: "stale or unknown disk base", Status: "open", CreatedAt: now}
 		r.cell.Shadows = append(r.cell.Shadows, shadow)
 		r.cell.UpdatedAt, r.cell.Revision = now, r.cell.Revision+1
-		s.appendEvidenceLocked(r, "shadow-create", map[string]string{"shadowID": shadow.ID, "author": shadow.Author, "baseHash": shadow.BaseHash, "reason": shadow.Reason})
+		_ = s.appendEvidenceLocked(r, "shadow-create", map[string]string{"shadowID": shadow.ID, "author": shadow.Author, "baseHash": shadow.BaseHash, "reason": shadow.Reason})
 		s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: shadow.Author, Actor: shadow.Author, Action: "shadow.create", Summary: "Uncertain disk change preserved as a Shadow Revision", Detail: "path=" + path + "; shadow=" + shadow.ID, Danger: "medium", Timestamp: now})
 		r.cell.Reviews = s.generateReviews(r)
 		return snapshotLocked(r), nil
@@ -868,7 +871,7 @@ func (s *Store) ApplyDiskDelete(id, path, base, actor string) (model.CellSnapsho
 		shadow := model.ShadowRevision{ID: s.nextShadowIDLocked(id), Path: path, Author: defaultValue(actor, "agent-disk"), Base: base, Before: current, After: "", BaseHash: contentHash(base), Reason: "stale or unknown disk delete base", Status: "open", CreatedAt: now}
 		r.cell.Shadows = append(r.cell.Shadows, shadow)
 		r.cell.UpdatedAt, r.cell.Revision = now, r.cell.Revision+1
-		s.appendEvidenceLocked(r, "shadow-create", map[string]string{"shadowID": shadow.ID, "author": shadow.Author, "baseHash": shadow.BaseHash, "reason": shadow.Reason})
+		_ = s.appendEvidenceLocked(r, "shadow-create", map[string]string{"shadowID": shadow.ID, "author": shadow.Author, "baseHash": shadow.BaseHash, "reason": shadow.Reason})
 		s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: shadow.Author, Actor: shadow.Author, Action: "shadow.create", Summary: "Uncertain disk deletion preserved as a Shadow Revision", Detail: "path=" + path + "; shadow=" + shadow.ID, Danger: "medium", Timestamp: now})
 		r.cell.Reviews = s.generateReviews(r)
 		return snapshotLocked(r), nil
@@ -1012,7 +1015,7 @@ func (s *Store) applyEditLocked(id string, r *record, path, content, actor strin
 		r.cell.Shadows = append(r.cell.Shadows, shadow)
 		r.cell.UpdatedAt = now
 		r.cell.Revision++
-		s.appendEvidenceLocked(r, "secret-edit-rejection", map[string]any{"shadowID": shadow.ID, "author": actor, "path": path, "findings": len(secretScan.Findings), "scanStatus": secretScan.Status})
+		_ = s.appendEvidenceLocked(r, "secret-edit-rejection", map[string]any{"shadowID": shadow.ID, "author": actor, "path": path, "findings": len(secretScan.Findings), "scanStatus": secretScan.Status})
 		s.appendEventLocked(r, model.Event{Kind: model.EventReview, Source: actor, Actor: actor, Action: "structural.secret.finding", Summary: "Agent edit was blocked before shared-document ingestion", Detail: "path=" + path + "; shadow=" + shadow.ID, Danger: "critical", Timestamp: now})
 		r.cell.Reviews = s.generateReviews(r)
 		return snapshotLocked(r), nil
@@ -1047,7 +1050,7 @@ func (s *Store) applyEditLocked(id string, r *record, path, content, actor strin
 		r.cell.Shadows = append(r.cell.Shadows, shadow)
 		r.cell.UpdatedAt = now
 		r.cell.Revision++
-		s.appendEvidenceLocked(r, "shadow-create", map[string]string{"shadowID": shadow.ID, "author": actor, "baseHash": shadow.BaseHash, "reason": shadow.Reason})
+		_ = s.appendEvidenceLocked(r, "shadow-create", map[string]string{"shadowID": shadow.ID, "author": actor, "baseHash": shadow.BaseHash, "reason": shadow.Reason})
 		s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: actor, Actor: actor, Action: "shadow.create", Summary: "Agent write preserved as a Shadow Revision", Detail: "path=" + path + "; shadow=" + shadow.ID, Danger: "medium", Timestamp: now})
 		r.cell.Reviews = s.generateReviews(r)
 		return snapshotLocked(r), nil
@@ -1207,7 +1210,7 @@ func (s *Store) takeOverAgentWriteLocked(id string, r *record, path, actor strin
 	delete(r.writers, path)
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
-	s.appendEvidenceLocked(r, "shadow-create", map[string]string{"shadowID": shadow.ID, "author": shadow.Author, "baseHash": shadow.BaseHash, "reason": shadow.Reason})
+	_ = s.appendEvidenceLocked(r, "shadow-create", map[string]string{"shadowID": shadow.ID, "author": shadow.Author, "baseHash": shadow.BaseHash, "reason": shadow.Reason})
 	s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: defaultValue(actor, "operator"), Actor: defaultValue(actor, "operator"), Action: "shadow.takeover", Summary: "Human took the live buffer; the in-flight agent change became a Shadow Revision", Detail: "path=" + path + "; shadow=" + shadow.ID, Danger: "medium", Authenticated: true, Timestamp: now})
 	r.cell.Reviews = s.generateReviews(r)
 	return nil
@@ -1494,7 +1497,9 @@ func (s *Store) PutSecret(id, name, value, actor, token string) (model.CellSnaps
 	if err != nil {
 		return model.CellSnapshot{}, secrets.Receipt{}, err
 	}
-	s.appendEvidenceLocked(r, "secret-receipt", receipt)
+	if err := s.appendEvidenceLocked(r, "secret-receipt", receipt); err != nil {
+		return snapshotLocked(r), secrets.Receipt{}, fmt.Errorf("persist secret write receipt: %w", err)
+	}
 	now := time.Now().UTC()
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
@@ -1690,11 +1695,22 @@ func (s *Store) ConsumeSecretGrant(id, requestID, token string) (string, secrets
 			if r.cell.SecretRequests[i].Status != "consuming" {
 				return "", secrets.Receipt{}, fmt.Errorf("Tier-2 grant already consumed")
 			}
+		}
+	}
+	if err := s.appendEvidenceLocked(r, "secret-receipt", receipt); err != nil {
+		for i := range r.cell.SecretRequests {
+			if r.cell.SecretRequests[i].ID == requestID && r.cell.SecretRequests[i].Status == "consuming" {
+				r.cell.SecretRequests[i].Status = "approved"
+			}
+		}
+		return "", secrets.Receipt{}, fmt.Errorf("persist Tier-2 secret receipt: %w", err)
+	}
+	for i := range r.cell.SecretRequests {
+		if r.cell.SecretRequests[i].ID == requestID {
 			r.cell.SecretRequests[i].Status = "consumed"
 			r.cell.SecretRequests[i].Receipt = receipt.ID
 		}
 	}
-	s.appendEvidenceLocked(r, "secret-receipt", receipt)
 	now := time.Now().UTC()
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
@@ -1717,7 +1733,9 @@ func (s *Store) SecretValue(id, name, actor, token string) (string, secrets.Rece
 	if !ok {
 		return "", secrets.Receipt{}, fmt.Errorf("cell %q not found", id)
 	}
-	s.appendEvidenceLocked(r, "secret-receipt", receipt)
+	if err := s.appendEvidenceLocked(r, "secret-receipt", receipt); err != nil {
+		return "", secrets.Receipt{}, fmt.Errorf("persist secret read receipt: %w", err)
+	}
 	now := time.Now().UTC()
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
@@ -1816,7 +1834,10 @@ func (s *Store) ResolveSecretProxy(id, routeID, token string) (model.SecretProxy
 	receipt.Action = "secret:proxy-inject"
 	s.mu.Lock()
 	r = s.cells[id]
-	s.appendEvidenceLocked(r, "secret-receipt", receipt)
+	if err := s.appendEvidenceLocked(r, "secret-receipt", receipt); err != nil {
+		s.mu.Unlock()
+		return model.SecretProxyRoute{}, "", secrets.Receipt{}, fmt.Errorf("persist proxy secret receipt: %w", err)
+	}
 	now := time.Now().UTC()
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
@@ -1884,7 +1905,7 @@ func (s *Store) ApproveReview(id, reviewID string) (model.CellSnapshot, error) {
 		return snapshotLocked(r), err
 	}
 	receipt = secrets.RedactText(receipt)
-	s.appendEvidenceLocked(r, "review-receipt", map[string]string{"reviewID": reviewID, "receipt": receipt})
+	_ = s.appendEvidenceLocked(r, "review-receipt", map[string]string{"reviewID": reviewID, "receipt": receipt})
 	for i := range r.cell.Reviews {
 		if r.cell.Reviews[i].ID == reviewID {
 			r.cell.Reviews[i].Status = "approved"
@@ -2576,7 +2597,7 @@ func (s *Store) appendEventLocked(r *record, event model.Event) {
 	event.Summary = secrets.RedactText(event.Summary)
 	event.Detail = secrets.RedactText(event.Detail)
 	r.events = append(r.events, event)
-	s.appendEvidenceLocked(r, "event", event)
+	_ = s.appendEvidenceLocked(r, "event", event)
 	if s.cells[r.cell.ID] == r {
 		if err := s.persistLocked(); err != nil {
 			r.cell.Status = model.CellError
@@ -2760,11 +2781,13 @@ func (s *Store) loadState() (bool, error) {
 	return true, nil
 }
 
-func (s *Store) appendEvidenceLocked(r *record, kind string, value any) {
+func (s *Store) appendEvidenceLocked(r *record, kind string, value any) error {
 	if _, err := s.evidence.Append(r.cell.ID, kind, value); err != nil {
 		r.cell.EvidenceHealth = "degraded"
 		r.cell.EvidenceError = secrets.RedactText(err.Error())
+		return err
 	}
+	return nil
 }
 
 // Evidence returns durable hash-chained records even after a cell has stopped

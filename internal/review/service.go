@@ -48,10 +48,6 @@ func (LocalCommitter) Commit(_ context.Context, request CommitRequest) (string, 
 	return "local-review-" + request.Review.ID, nil
 }
 
-type BuckleyCommitter struct {
-	Binary string
-}
-
 type GraftDiffer struct {
 	Binary string
 }
@@ -75,33 +71,6 @@ func (d *GraftDiffer) EntityDiff(ctx context.Context, workdir string) (string, e
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("graft diff: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-	return strings.TrimSpace(string(output)), nil
-}
-
-func NewBuckleyCommitter(binary string) *BuckleyCommitter {
-	if binary == "" {
-		binary = "buckley"
-	}
-	return &BuckleyCommitter{Binary: binary}
-}
-
-func (c *BuckleyCommitter) Commit(ctx context.Context, request CommitRequest) (string, error) {
-	if strings.TrimSpace(request.Workdir) == "" {
-		return "", fmt.Errorf("buckley worktree is not configured")
-	}
-	if _, err := os.Stat(request.Workdir); err != nil {
-		return "", fmt.Errorf("buckley worktree: %w", err)
-	}
-	args := []string{"commit", "-yes", "-push=false", "-min", "-exclusive"}
-	for _, path := range request.Review.Files {
-		args = append(args, "-paths", path)
-	}
-	cmd := exec.CommandContext(ctx, c.Binary, args...)
-	cmd.Dir = request.Workdir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("buckley commit: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return strings.TrimSpace(string(output)), nil
 }

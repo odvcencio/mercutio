@@ -90,8 +90,16 @@ func TestKernelTelemetryPersistsGzipBatchAndEvidenceGaps(t *testing.T) {
 	if !strings.Contains(latest.Detail, "batch-gap=true") {
 		t.Fatalf("batch gap not durable: %s", latest.Detail)
 	}
-	if replay := post(3, 0); replay.Code != http.StatusConflict {
+	beforeReplay := len(snapshot.Events)
+	if replay := post(3, 0); replay.Code != http.StatusAccepted || !strings.Contains(replay.Body.String(), `"duplicate":true`) {
 		t.Fatalf("replay status=%d %s", replay.Code, replay.Body.String())
+	}
+	afterReplay, err := store.Snapshot("cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(afterReplay.Events) != beforeReplay {
+		t.Fatalf("duplicate batch appended events: before=%d after=%d", beforeReplay, len(afterReplay.Events))
 	}
 }
 
@@ -125,8 +133,19 @@ func TestKernelTelemetryCursorSurvivesControlPlaneRestart(t *testing.T) {
 
 	secondStore := newStore()
 	second := New(secondStore, transport.NewCellHub(secondStore))
-	if response := post(second, 1); response.Code != http.StatusConflict {
+	beforeReplay, err := secondStore.Snapshot("cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response := post(second, 1); response.Code != http.StatusAccepted || !strings.Contains(response.Body.String(), `"duplicate":true`) {
 		t.Fatalf("replay after restart=%d %s", response.Code, response.Body.String())
+	}
+	afterReplay, err := secondStore.Snapshot("cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(afterReplay.Events) != len(beforeReplay.Events) {
+		t.Fatalf("restart replay appended events: before=%d after=%d", len(beforeReplay.Events), len(afterReplay.Events))
 	}
 	cursorResponse := httptest.NewRecorder()
 	second.NodeTelemetryCursor(cursorResponse, httptest.NewRequest(http.MethodGet, "/api/internal/nodes/node-reconnect/telemetry-cursor", nil))

@@ -122,7 +122,15 @@ func (h *Handler) KernelTelemetry(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	previous := h.store.KernelBatchCursor(batch.NodeID)
-	if batch.BatchSeq <= previous {
+	if batch.BatchSeq == previous {
+		// The cursor is advanced only after every event in the batch is durable.
+		// Treat an exact replay as a successful acknowledgement so a Node Agent
+		// whose original HTTP response was lost can advance without duplicating
+		// the durable event stream.
+		writeJSON(w, http.StatusAccepted, map[string]any{"accepted": 0, "batchSeq": batch.BatchSeq, "duplicate": true})
+		return
+	}
+	if batch.BatchSeq < previous {
 		errorJSON(w, http.StatusConflict, fmt.Errorf("kernel batch sequence %d is not newer than %d", batch.BatchSeq, previous))
 		return
 	}
