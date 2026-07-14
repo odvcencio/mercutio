@@ -44,13 +44,13 @@ func (q *TelemetryQueue) Enqueue(event KernelEvent) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.events) >= q.capacity {
-		if event.Verdict == "allow" {
+		if !priorityEvent(event) {
 			q.drops["queue-allow"]++
 			return false
 		}
 		replace := -1
 		for index, queued := range q.events {
-			if queued.Verdict == "allow" {
+			if !priorityEvent(queued) {
 				replace = index
 				break
 			}
@@ -70,6 +70,18 @@ func (q *TelemetryQueue) Enqueue(event KernelEvent) bool {
 		}
 	}
 	return true
+}
+
+func priorityEvent(event KernelEvent) bool {
+	if event.Verdict != "" && !strings.EqualFold(event.Verdict, "allow") {
+		return true
+	}
+	switch strings.ToLower(event.ActionDanger["mode"]) {
+	case "mutate", "write", "execute", "control", "admin":
+		return true
+	default:
+		return false
+	}
 }
 
 func (q *TelemetryQueue) AddKernelDrops(source string, count uint64) {

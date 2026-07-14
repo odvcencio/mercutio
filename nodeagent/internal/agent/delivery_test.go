@@ -59,6 +59,26 @@ func TestTelemetryQueueShedsAllowBeforeDeny(t *testing.T) {
 	}
 }
 
+func TestTelemetryQueuePreservesAllowedHighDangerEffects(t *testing.T) {
+	poster := &recordingPoster{}
+	queue := NewTelemetryQueue("node-1", 2, poster)
+	queue.Enqueue(KernelEvent{CellID: "observe-a", Verdict: "allow", ActionDanger: map[string]string{"mode": "observe"}})
+	queue.Enqueue(KernelEvent{CellID: "observe-b", Verdict: "allow", ActionDanger: map[string]string{"mode": "read"}})
+	if !queue.Enqueue(KernelEvent{CellID: "mutation", Verdict: "allow", ActionDanger: map[string]string{"mode": "mutate", "scope": "filesystem", "reversibility": "restart"}}) {
+		t.Fatal("allowed high-danger mutation was shed while benign observations were queued")
+	}
+	if err := queue.flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, event := range poster.batches[0].Events {
+		found = found || event.CellID == "mutation"
+	}
+	if !found {
+		t.Fatal("allowed high-danger mutation did not survive priority shedding")
+	}
+}
+
 func TestTelemetryQueueReconcilesCursorAndRetriesSameSequence(t *testing.T) {
 	poster := &reconnectingPoster{cursor: 41, failFirst: true}
 	queue := NewTelemetryQueue("node-1", 2, poster)
