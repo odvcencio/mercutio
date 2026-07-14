@@ -1,8 +1,11 @@
 package view
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"m31labs.dev/gosx"
 	"m31labs.dev/mercutio/internal/model"
@@ -34,6 +37,35 @@ func TestPageUsesGoSXActionsWithoutApplicationScripts(t *testing.T) {
 		if strings.Contains(html, forbidden) {
 			t.Fatalf("viewport contains application script contract %q", forbidden)
 		}
+	}
+}
+
+func TestOrreryRendersFiftyCellsWithinServerBudget(t *testing.T) {
+	state := model.State{Cells: make([]model.CellSnapshot, 50)}
+	for i := range state.Cells {
+		state.Cells[i] = model.CellSnapshot{Cell: model.Cell{
+			ID: fmt.Sprintf("cell-%02d", i), RepoURL: fmt.Sprintf("https://example.invalid/repo-%02d", i%5),
+			Branch: "main", Status: model.CellReady, SandboxProfile: "standard", EvidenceHealth: "healthy",
+			Files: []model.File{{Path: "main.go", Language: "go", Content: "package main\n"}},
+		}}
+	}
+	durations := make([]time.Duration, 25)
+	var html string
+	for i := range durations {
+		started := time.Now()
+		html = gosx.RenderHTML(renderOrrery(state))
+		durations[i] = time.Since(started)
+	}
+	if count := strings.Count(html, `class="orrery-node `); count != 50 {
+		t.Fatalf("orrery cards = %d, want 50", count)
+	}
+	if strings.Contains(html, "<button") || strings.Contains(html, "<form") {
+		t.Fatal("orrery exposes a bulk action surface")
+	}
+	sortedDurations := append([]time.Duration(nil), durations...)
+	slices.Sort(sortedDurations)
+	if p95 := sortedDurations[23]; p95 > 50*time.Millisecond {
+		t.Fatalf("50-cell Orrery server render p95 = %s, budget 50ms", p95)
 	}
 }
 

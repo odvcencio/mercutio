@@ -46,8 +46,21 @@ func renderTopbar(connected int) gosx.Node {
 }
 
 func renderSidebar(state model.State, selected *model.CellSnapshot, csrfToken string) gosx.Node {
-	cards := make([]gosx.Node, 0, len(state.Cells))
-	for i := range state.Cells {
+	const visibleCellLimit = 12
+	indices := make([]int, 0, min(len(state.Cells), visibleCellLimit))
+	for i := 0; i < len(state.Cells) && len(indices) < visibleCellLimit; i++ {
+		indices = append(indices, i)
+	}
+	if selected != nil && len(state.Cells) > visibleCellLimit {
+		for i := visibleCellLimit; i < len(state.Cells); i++ {
+			if state.Cells[i].ID == selected.ID {
+				indices[len(indices)-1] = i
+				break
+			}
+		}
+	}
+	cards := make([]gosx.Node, 0, len(indices)+1)
+	for _, i := range indices {
 		cell := &state.Cells[i]
 		className := "cell-card"
 		if selected != nil && selected.ID == cell.ID {
@@ -63,6 +76,9 @@ func renderSidebar(state model.State, selected *model.CellSnapshot, csrfToken st
 			children = append(children, actionForm(csrfToken, "destroy-cell", "cell-stop", hidden("cellID", cell.ID), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Stop cell"))))
 		}
 		cards = append(cards, gosx.El("article", gosx.Attrs(gosx.Attr("class", className)), gosx.Fragment(children...)))
+	}
+	if hidden := len(state.Cells) - len(indices); hidden > 0 {
+		cards = append(cards, gosx.El("a", gosx.Attrs(gosx.Attr("class", "cell-overflow"), gosx.Attr("href", "#orrery-panel")), gosx.Text(fmt.Sprintf("%d more cells in Orrery", hidden))))
 	}
 	if len(cards) == 0 {
 		cards = append(cards, gosx.El("div", gosx.Attrs(gosx.Attr("class", "empty-feed")), gosx.Text("No cells yet. Create one from a repository.")))

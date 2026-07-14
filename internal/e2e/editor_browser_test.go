@@ -24,6 +24,9 @@ func TestGoSXEditorIntelligence(t *testing.T) {
 		chromedp.ExecPath(envOr("MERCUTIO_CHROME", "/usr/bin/google-chrome")),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("disable-background-timer-throttling", true),
+		chromedp.Flag("disable-backgrounding-occluded-windows", true),
+		chromedp.Flag("disable-renderer-backgrounding", true),
 	)
 	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), options...)
 	defer cancelAllocator()
@@ -162,6 +165,169 @@ func TestGoSXEditorIntelligence(t *testing.T) {
 	}
 	if errors := joinedErrors(&mutex, browserErrors); errors != "" {
 		t.Fatalf("browser errors: %s", errors)
+	}
+}
+
+func TestOrreryScaleAndPerformance(t *testing.T) {
+	target := os.Getenv("MERCUTIO_E2E_URL")
+	if target == "" {
+		t.Skip("set MERCUTIO_E2E_URL to an authenticated fleet page")
+	}
+	options := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(envOr("MERCUTIO_CHROME", "/usr/bin/google-chrome")),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("disable-background-timer-throttling", true),
+		chromedp.Flag("disable-backgrounding-occluded-windows", true),
+		chromedp.Flag("disable-renderer-backgrounding", true),
+	)
+	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), options...)
+	defer cancelAllocator()
+	browser, cancelBrowser := chromedp.NewContext(allocator)
+	defer cancelBrowser()
+	ctx, cancel := context.WithTimeout(browser, 45*time.Second)
+	defer cancel()
+	wantCells := envInt("MERCUTIO_E2E_CELL_COUNT", 50)
+	if err := chromedp.Run(ctx,
+		chromedp.EmulateViewport(1600, 900),
+		chromedp.Navigate("data:text/html,<p id=warmup>ready</p>"),
+		chromedp.WaitVisible("#warmup", chromedp.ByQuery),
+	); err != nil {
+		t.Fatal(err)
+	}
+	paintStarted := time.Now()
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(target),
+		chromedp.WaitVisible(".topbar", chromedp.ByQuery),
+	); err != nil {
+		t.Fatal(err)
+	}
+	paintReady := time.Since(paintStarted)
+	var firstFrame []byte
+	if err := chromedp.Run(ctx, chromedp.CaptureScreenshot(&firstFrame)); err != nil {
+		t.Fatal(err)
+	}
+	if len(firstFrame) < 1024 || paintReady >= 1500*time.Millisecond {
+		t.Fatalf("first rendered frame = %s (%d bytes), budget 1.5s", paintReady, len(firstFrame))
+	}
+	if err := chromedp.Run(ctx,
+		chromedp.WaitVisible("#orrery-panel", chromedp.ByQuery),
+		chromedp.Poll(`document.querySelectorAll(".orrery-node").length === `+strconv.Itoa(wantCells), nil, chromedp.WithPollingTimeout(10*time.Second)),
+		chromedp.Poll(`typeof window.gotreesitter === "object" && document.querySelectorAll("#editor-highlight-content [class^=syntax-]").length > 0`, nil, chromedp.WithPollingTimeout(15*time.Second)),
+	); err != nil {
+		var debug any
+		_ = chromedp.Run(ctx, chromedp.Evaluate(`({cells:document.querySelectorAll(".orrery-node").length,runtime:typeof window.gotreesitter,diagnostic:document.querySelector("#editor-diagnostics")?.textContent})`, &debug))
+		t.Fatalf("initial scale page: %v; debug=%+v", err, debug)
+	}
+
+	var measured struct {
+		Cells           int       `json:"cells"`
+		BulkActions     int       `json:"bulkActions"`
+		FirstPaint      float64   `json:"firstPaint"`
+		FCP             float64   `json:"fcp"`
+		WASMResponseEnd float64   `json:"wasmResponseEnd"`
+		ResponseStart   float64   `json:"responseStart"`
+		ResponseEnd     float64   `json:"responseEnd"`
+		DOMInteractive  float64   `json:"domInteractive"`
+		LocalEchoP95    float64   `json:"localEchoP95"`
+		WASMUpdateP95   float64   `json:"wasmUpdateP95"`
+		FrameAverage    float64   `json:"frameAverage"`
+		FrameP95        float64   `json:"frameP95"`
+		FrameSamples    []float64 `json:"frameSamples"`
+	}
+	const measurement = `(async () => {
+		const percentile = (values, p) => values.slice().sort((a,b) => a-b)[Math.ceil(values.length*p)-1];
+		const source = document.querySelector("#editor-content");
+		const local = [];
+		for (let i=0; i<25; i++) { const start=performance.now(); source.setRangeText(" ", source.value.length, source.value.length, "end"); source.dispatchEvent(new Event("input", {bubbles:true})); local.push(performance.now()-start); }
+		const runtime = window.gotreesitter;
+		const documentID = "mercutio-performance-" + Date.now();
+		let text = "package main\n\nfunc main() {}\n";
+		const opened = runtime.open("go", documentID, text);
+		if (!opened || opened.ok !== true) throw new Error(opened?.error || "performance document open failed");
+		const wasm = [];
+		for (let i=0; i<25; i++) { text += "\n"; const start=performance.now(); const result=runtime.update(documentID, text); wasm.push(performance.now()-start); if (!result || result.ok !== true) throw new Error(result?.error || "performance update failed"); }
+		runtime.close(documentID);
+		const frames = [];
+		await new Promise(resolve => { let previous=0; let count=0; const step = now => { if (previous) frames.push(now-previous); previous=now; window.scrollTo(0, (count%2)*document.documentElement.scrollHeight); if (++count >= 121) resolve(); else requestAnimationFrame(step); }; requestAnimationFrame(step); });
+		const paints = performance.getEntriesByType("paint");
+		const firstPaint = paints.find(entry => entry.name === "first-paint")?.startTime || 0;
+		const fcp = paints.find(entry => entry.name === "first-contentful-paint")?.startTime || 0;
+		const wasmResource = performance.getEntriesByType("resource").find(entry => entry.name.includes("gotreesitter.wasm"));
+		const navigation = performance.getEntriesByType("navigation")[0];
+		return { cells:document.querySelectorAll(".orrery-node").length, bulkActions:document.querySelectorAll("#orrery-panel button,#orrery-panel form").length, firstPaint, fcp, wasmResponseEnd:wasmResource?.responseEnd||0, responseStart:navigation?.responseStart||0, responseEnd:navigation?.responseEnd||0, domInteractive:navigation?.domInteractive||0, localEchoP95:percentile(local,.95), wasmUpdateP95:percentile(wasm,.95), frameAverage:frames.reduce((a,b)=>a+b,0)/frames.length, frameP95:percentile(frames,.95), frameSamples:frames };
+	})()`
+	if err := chromedp.Run(ctx, chromedp.Evaluate(measurement, &measured, func(params *runtime.EvaluateParams) *runtime.EvaluateParams {
+		return params.WithAwaitPromise(true)
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if measured.Cells != wantCells || measured.BulkActions != 0 {
+		t.Fatalf("Orrery scale/actions = %+v", measured)
+	}
+	if measured.FirstPaint <= 0 || measured.WASMResponseEnd <= 0 || measured.FirstPaint >= measured.WASMResponseEnd {
+		t.Fatalf("first paint is not independent of WASM or exceeds 1.5s: %+v", measured)
+	}
+	if measured.LocalEchoP95 >= 16 || measured.WASMUpdateP95 >= 30 {
+		t.Fatalf("editor performance budget exceeded: %+v", measured)
+	}
+	if len(measured.FrameSamples) != 120 || measured.FrameAverage > 18.2 || measured.FrameP95 > 20 {
+		t.Fatalf("50-cell Orrery did not sustain the frame budget: %+v", measured)
+	}
+}
+
+func TestPeerEditLatencyBudget(t *testing.T) {
+	target := os.Getenv("MERCUTIO_E2E_URL")
+	if target == "" {
+		t.Skip("set MERCUTIO_E2E_URL to an authenticated collaborative editor page")
+	}
+	options := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(envOr("MERCUTIO_CHROME", "/usr/bin/google-chrome")),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("disable-background-timer-throttling", true),
+		chromedp.Flag("disable-backgrounding-occluded-windows", true),
+		chromedp.Flag("disable-renderer-backgrounding", true),
+	)
+	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), options...)
+	defer cancelAllocator()
+	writer, cancelWriter := chromedp.NewContext(allocator)
+	defer cancelWriter()
+	peer, cancelPeer := chromedp.NewContext(allocator)
+	defer cancelPeer()
+	writer, cancelWriterTimeout := context.WithTimeout(writer, 30*time.Second)
+	defer cancelWriterTimeout()
+	peer, cancelPeerTimeout := context.WithTimeout(peer, 30*time.Second)
+	defer cancelPeerTimeout()
+	ready := func(ctx context.Context) error {
+		return chromedp.Run(ctx,
+			chromedp.Navigate(target),
+			chromedp.WaitVisible("#editor-content", chromedp.ByQuery),
+			chromedp.Poll(`document.querySelector(".editor-collaboration-status")?.textContent.includes("connected")`, nil, chromedp.WithPollingTimeout(10*time.Second)),
+		)
+	}
+	if err := ready(writer); err != nil {
+		t.Fatal(err)
+	}
+	if err := ready(peer); err != nil {
+		t.Fatal(err)
+	}
+	if err := chromedp.Run(peer, chromedp.Evaluate(`(() => { window.__mercutioPeerAt = 0; document.querySelector("#editor-content").addEventListener("gosx:remote-input", () => { window.__mercutioPeerAt = Date.now(); }, {once:true}); return true; })()`, nil)); err != nil {
+		t.Fatal(err)
+	}
+	var sent int64
+	if err := chromedp.Run(writer, chromedp.Evaluate(`(() => { const source=document.querySelector("#editor-content"); const sent=Date.now(); source.setRangeText("\n// peer-latency-probe\n", source.value.length, source.value.length, "end"); source.dispatchEvent(new Event("input", {bubbles:true})); return sent; })()`, &sent)); err != nil {
+		t.Fatal(err)
+	}
+	if err := chromedp.Run(peer, chromedp.Poll(`window.__mercutioPeerAt > 0`, nil, chromedp.WithPollingTimeout(5*time.Second))); err != nil {
+		t.Fatal(err)
+	}
+	var received int64
+	if err := chromedp.Run(peer, chromedp.Evaluate(`window.__mercutioPeerAt`, &received)); err != nil {
+		t.Fatal(err)
+	}
+	if latency := time.Duration(received-sent) * time.Millisecond; latency < 0 || latency >= 120*time.Millisecond {
+		t.Fatalf("peer edit latency = %s, budget 120ms", latency)
 	}
 }
 

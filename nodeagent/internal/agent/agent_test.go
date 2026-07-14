@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -14,6 +15,30 @@ func (f *fakeSource) ListCells(context.Context) ([]Cell, error) { return f.cells
 type fakeLoader struct {
 	calls []string
 	err   error
+}
+
+func TestFiftyCellReconcileChurnLeavesNoAgentState(t *testing.T) {
+	source := &fakeSource{cells: make([]Cell, 50)}
+	for i := range source.cells {
+		source.cells[i] = Cell{ID: fmt.Sprintf("cell-%02d", i), CgroupID: uint64(i + 1), Profile: "standard"}
+	}
+	loader := &fakeLoader{}
+	controlCalls := []string{}
+	agent := &Agent{Source: source, Loader: loader, Control: fakeControl{calls: &controlCalls}}
+	if err := agent.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(agent.armed) != 50 || len(loader.calls) != 50 || len(controlCalls) != 50 {
+		t.Fatalf("arm state=%d loader=%d receipts=%d", len(agent.armed), len(loader.calls), len(controlCalls))
+	}
+	loader.calls = nil
+	source.cells = nil
+	if err := agent.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(agent.armed) != 0 || len(loader.calls) != 50 {
+		t.Fatalf("residual state=%d disarms=%d", len(agent.armed), len(loader.calls))
+	}
 }
 
 func (f *fakeLoader) Arm(_ context.Context, cell Cell) (ArmResult, error) {
