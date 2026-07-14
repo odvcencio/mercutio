@@ -61,7 +61,7 @@ func TestKubernetesRuntimeRearmsPodMetadataInPlace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.UID != "stable-uid" || updated.Labels["mercutio.dev/profile"] != "strict" || updated.Annotations["mercutio.dev/policy-rearmed-at"] == "" || pod.Phase != PhaseRunning {
+	if updated.UID != "stable-uid" || updated.Labels["mercutio.dev/profile"] != "strict" || updated.Annotations["mercutio.dev/policy-rearmed-at"] == "" || updated.Annotations["mercutio.dev/armed"] != "false" || pod.Phase != PhaseRunning {
 		t.Fatalf("pod was not rearmed in place: runtime=%+v kubernetes=%+v", pod, updated)
 	}
 }
@@ -93,7 +93,7 @@ func TestKubernetesRuntimeRearmsAcrossProfileClassesInCurrentNamespace(t *testin
 		t.Fatal(err)
 	}
 	updated, err = client.CoreV1().Pods("cells-standard").Get(context.Background(), "mercutio-cell-1", metav1.GetOptions{})
-	if err != nil || updated.Labels["mercutio.dev/network-profile"] != "strict" {
+	if err != nil || updated.Labels["mercutio.dev/network-profile"] != "strict" || updated.Annotations["mercutio.dev/armed"] != "true" {
 		t.Fatalf("network profile was not finalized after kernel arm: profile=%q err=%v", updated.Labels["mercutio.dev/network-profile"], err)
 	}
 	pods, err := client.CoreV1().Pods("cells-strict").List(context.Background(), metav1.ListOptions{})
@@ -114,6 +114,20 @@ func TestKubernetesRuntimeListsOnlyManagedPods(t *testing.T) {
 	}
 	if len(pods) != 1 || pods[0].CellID != "cell-orphan" {
 		t.Fatalf("managed pods = %+v", pods)
+	}
+}
+
+func TestKubernetesRuntimeRejectsAmbiguousDuplicateCellPods(t *testing.T) {
+	client := fake.NewSimpleClientset(
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "duplicate-a", Namespace: "cells", Labels: map[string]string{"mercutio.dev/cell-id": "cell-a"}}},
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "duplicate-b", Namespace: "cells", Labels: map[string]string{"mercutio.dev/cell-id": "cell-a"}}},
+	)
+	runtime := NewKubernetesRuntime(client, KubernetesRuntimeOptions{Namespace: "cells"})
+	if _, err := runtime.Observe(context.Background(), "cell-a"); err == nil {
+		t.Fatal("duplicate Pods were accepted during observation")
+	}
+	if _, err := runtime.Ensure(context.Background(), Spec{CellID: "cell-a", RepoURL: "https://example.test/repo", Profile: "standard", AttachToken: "attach", ArmToken: "arm"}); err == nil {
+		t.Fatal("duplicate Pods were accepted during ensure")
 	}
 }
 
@@ -268,6 +282,21 @@ spec:
 	}
 	if cell.GetAnnotations()["mercutio.dev/profile-digest"] == "" {
 		t.Fatal("Cell resource has no profile digest annotation")
+	}
+	if err := runtime.FinalizePolicy(context.Background(), "cell-1", "standard", created.Annotations["mercutio.dev/profile-digest"]); err != nil {
+		t.Fatalf("finalize policy: %v", err)
+	}
+	cell, err = dynamicClient.Resource(cellResource).Namespace("cells").Get(context.Background(), "cell-1", metav1.GetOptions{})
+	if armed, _, _ := unstructured.NestedBool(cell.Object, "status", "armed"); err != nil || !armed {
+		t.Fatalf("Cell resource did not record armed status: armed=%v err=%v object=%+v", armed, err, cell.Object)
+	}
+	if _, err := runtime.Ensure(context.Background(), Spec{CellID: "cell-1", RepoURL: "https://github.com/example/project", Profile: "standard", AttachToken: "rotated-attach", ArmToken: "rotated-arm"}); err != nil {
+		t.Fatalf("reconcile existing sandbox: %v", err)
+	}
+	secret, _ = client.CoreV1().Secrets("cells").Get(context.Background(), "mercutio-cell-1-attach", metav1.GetOptions{})
+	armSecret, _ = client.CoreV1().Secrets("cells").Get(context.Background(), "mercutio-cell-1-arm", metav1.GetOptions{})
+	if string(secret.Data["token"]) != "rotated-attach" || string(armSecret.Data["token"]) != "rotated-arm" {
+		t.Fatalf("existing sandbox credentials were not reconciled: attach=%q arm=%q", secret.Data["token"], armSecret.Data["token"])
 	}
 }
 

@@ -582,23 +582,108 @@ func (s *Store) CollectShadowGarbage(now time.Time) int {
 }
 
 func (s *Store) Reconcile(ctx context.Context, id string) (model.CellSnapshot, bool, error) {
+	s.mu.RLock()
+	r, ok := s.cells[id]
+	if !ok {
+		s.mu.RUnlock()
+		return model.CellSnapshot{}, false, fmt.Errorf("cell %q not found", id)
+	}
+	if r.cell.Status == model.CellStopped {
+		snapshot := snapshotLocked(r)
+		s.mu.RUnlock()
+		return snapshot, false, nil
+	}
+	spec := sandbox.Spec{CellID: id, RepoURL: r.cell.RepoURL, Branch: r.cell.Branch, Profile: r.cell.SandboxProfile, HubURL: s.hubURL, AttachToken: r.attachToken, ArmToken: r.armToken}
+	s.mu.RUnlock()
+
 	pod, err := s.runtime.Observe(ctx, id)
 	if err != nil {
 		if errorsIsNotFound(err) {
-			return model.CellSnapshot{}, false, nil
+			return s.restoreMissingSandbox(ctx, id)
 		}
 		return model.CellSnapshot{}, false, err
 	}
+	// Ensure is idempotent for a live pod and reconciles generated credentials,
+	// Cell desired state, and status after a control-plane restart.
+	pod, err = s.runtime.Ensure(ctx, spec)
+	if err != nil {
+		return model.CellSnapshot{}, false, fmt.Errorf("reconcile sandbox resources %q: %w", id, err)
+	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	r, ok := s.cells[id]
+	r, ok = s.cells[id]
 	if !ok {
+		s.mu.Unlock()
 		return model.CellSnapshot{}, false, fmt.Errorf("cell %q not found", id)
 	}
-	before := r.cell.Sandbox
+	if r.cell.Status == model.CellStopped {
+		snapshot := snapshotLocked(r)
+		s.mu.Unlock()
+		_ = s.runtime.Delete(ctx, id)
+		return snapshot, false, nil
+	}
+	if r.cell.RepoURL != spec.RepoURL || r.cell.Branch != spec.Branch || r.cell.SandboxProfile != spec.Profile {
+		s.mu.Unlock()
+		return model.CellSnapshot{}, false, fmt.Errorf("cell %q changed during sandbox reconciliation", id)
+	}
+	beforeSandbox := r.cell.Sandbox
+	beforeStatus := r.cell.Status
 	s.applyPodLocked(r, pod, false)
-	changed := !reflect.DeepEqual(before, r.cell.Sandbox)
-	return snapshotLocked(r), changed, nil
+	changed := !reflect.DeepEqual(beforeSandbox, r.cell.Sandbox) || beforeStatus != r.cell.Status
+	if changed {
+		r.cell.Revision++
+		s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: "sandbox-runtime", Action: "sandbox." + string(pod.Phase), Summary: "Sandbox pod transitioned to " + string(pod.Phase), Detail: pod.Name, Danger: map[bool]string{true: "high", false: "low"}[pod.Phase == sandbox.PhaseFailed], Timestamp: r.cell.UpdatedAt})
+	}
+	snapshot := snapshotLocked(r)
+	s.mu.Unlock()
+	return snapshot, changed, nil
+}
+
+func (s *Store) restoreMissingSandbox(ctx context.Context, id string) (model.CellSnapshot, bool, error) {
+	s.mu.RLock()
+	r, ok := s.cells[id]
+	if !ok {
+		s.mu.RUnlock()
+		return model.CellSnapshot{}, false, fmt.Errorf("cell %q not found", id)
+	}
+	if r.cell.Status == model.CellStopped {
+		snapshot := snapshotLocked(r)
+		s.mu.RUnlock()
+		return snapshot, false, nil
+	}
+	spec := sandbox.Spec{CellID: id, RepoURL: r.cell.RepoURL, Branch: r.cell.Branch, Profile: r.cell.SandboxProfile, HubURL: s.hubURL, AttachToken: r.attachToken, ArmToken: r.armToken}
+	s.mu.RUnlock()
+
+	pod, err := s.runtime.Ensure(ctx, spec)
+	if err != nil {
+		return model.CellSnapshot{}, false, fmt.Errorf("restore missing sandbox %q: %w", id, err)
+	}
+	s.mu.Lock()
+	r = s.cells[id]
+	if r == nil || r.cell.Status == model.CellStopped {
+		var snapshot model.CellSnapshot
+		if r != nil {
+			snapshot = snapshotLocked(r)
+		}
+		s.mu.Unlock()
+		_ = s.runtime.Delete(ctx, id)
+		if r == nil {
+			return model.CellSnapshot{}, false, fmt.Errorf("cell %q disappeared during sandbox restore", id)
+		}
+		return snapshot, false, nil
+	}
+	if r.cell.RepoURL != spec.RepoURL || r.cell.Branch != spec.Branch || r.cell.SandboxProfile != spec.Profile {
+		s.mu.Unlock()
+		_ = s.runtime.Delete(ctx, id)
+		return model.CellSnapshot{}, false, fmt.Errorf("cell %q changed during sandbox restore", id)
+	}
+	s.applyPodLocked(r, pod, false)
+	r.cell.Revision++
+	now := time.Now().UTC()
+	r.cell.UpdatedAt = now
+	s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: "sandbox-reconciler", Action: "sandbox.recreated", Summary: "Missing sandbox pod recreated from durable desired state", Detail: pod.Name, Danger: "medium", Authenticated: true, Timestamp: now})
+	snapshot := snapshotLocked(r)
+	s.mu.Unlock()
+	return snapshot, true, nil
 }
 
 type ArmReceipt struct {

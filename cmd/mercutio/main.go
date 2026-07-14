@@ -271,7 +271,9 @@ func reconcileCells(ctx context.Context, store *cell.Store, hub *transport.CellH
 			return
 		case <-ticker.C:
 			for _, id := range store.CellIDs() {
-				if snapshot, changed, err := store.Reconcile(ctx, id); err == nil && changed {
+				if snapshot, changed, err := store.Reconcile(ctx, id); err != nil {
+					log.Printf("reconcile cell %s: %v", id, err)
+				} else if changed {
 					hub.BroadcastCell(snapshot)
 				}
 			}

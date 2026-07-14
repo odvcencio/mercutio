@@ -122,10 +122,12 @@ func (r *MemoryRuntime) Ensure(_ context.Context, spec Spec) (Pod, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if pod, ok := r.pods[spec.CellID]; ok {
-		pod.Phase = PhaseRunning
-		pod.LastTransition = time.Now().UTC()
-		pod.Failure = ""
-		r.pods[spec.CellID] = pod
+		if pod.Phase != PhaseRunning || pod.Failure != "" {
+			pod.Phase = PhaseRunning
+			pod.LastTransition = time.Now().UTC()
+			pod.Failure = ""
+			r.pods[spec.CellID] = pod
+		}
 		return pod, nil
 	}
 	now := time.Now().UTC()
@@ -317,6 +319,9 @@ func (r *KubernetesRuntime) Ensure(ctx context.Context, spec Spec) (Pod, error) 
 	if err != nil {
 		return Pod{}, fmt.Errorf("list sandbox pods: %w", err)
 	}
+	if len(pods.Items) > 1 {
+		return Pod{}, fmt.Errorf("multiple sandbox pods found for cell %q", spec.CellID)
+	}
 	if len(pods.Items) > 0 {
 		result := podFromKubernetes(pods.Items[0], spec)
 		_ = r.updateCellStatus(ctx, namespace, result, pods.Items[0].Spec.NodeName)
@@ -343,6 +348,9 @@ func (r *KubernetesRuntime) Observe(ctx context.Context, cellID string) (Pod, er
 		pods, err := r.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: "mercutio.dev/cell-id=" + cellID})
 		if err != nil {
 			return Pod{}, fmt.Errorf("observe sandbox pods: %w", err)
+		}
+		if len(pods.Items) > 1 {
+			return Pod{}, fmt.Errorf("multiple sandbox pods found for cell %q", cellID)
 		}
 		if len(pods.Items) > 0 {
 			return podFromKubernetes(pods.Items[0], Spec{CellID: cellID}), nil
@@ -410,6 +418,7 @@ func (r *KubernetesRuntime) Rearm(ctx context.Context, spec Spec) (Pod, error) {
 	pod.Annotations["mercutio.dev/capability-manifest"] = string(encoded)
 	pod.Annotations["mercutio.dev/profile-digest"] = manifest.ProfileDigest
 	pod.Annotations["mercutio.dev/policy-rearmed-at"] = time.Now().UTC().Format(time.RFC3339Nano)
+	pod.Annotations["mercutio.dev/armed"] = "false"
 	updated, err := r.client.CoreV1().Pods(namespace).Update(ctx, pod, metav1.UpdateOptions{})
 	if err != nil {
 		return Pod{}, fmt.Errorf("re-arm sandbox pod %q: %w", pod.Name, err)
@@ -432,10 +441,16 @@ func (r *KubernetesRuntime) FinalizePolicy(ctx context.Context, cellID, profile,
 		pod.Labels = map[string]string{}
 	}
 	pod.Labels["mercutio.dev/network-profile"] = profile
-	if _, err := r.client.CoreV1().Pods(namespace).Update(ctx, pod, metav1.UpdateOptions{}); err != nil {
+	if pod.Annotations == nil {
+		pod.Annotations = map[string]string{}
+	}
+	pod.Annotations["mercutio.dev/armed"] = "true"
+	pod.Annotations["mercutio.dev/profile-digest"] = profileDigest
+	updated, err := r.client.CoreV1().Pods(namespace).Update(ctx, pod, metav1.UpdateOptions{})
+	if err != nil {
 		return fmt.Errorf("finalize sandbox network profile: %w", err)
 	}
-	return nil
+	return r.updateCellStatus(ctx, namespace, podFromKubernetes(*updated, Spec{CellID: cellID, Profile: profile}), updated.Spec.NodeName)
 }
 
 func (r *KubernetesRuntime) findCellPod(ctx context.Context, cellID string) (string, *corev1.Pod, error) {
@@ -632,6 +647,9 @@ func (r *KubernetesRuntime) ensureCredential(ctx context.Context, namespace, cel
 	}
 	if secret.Data == nil {
 		secret.Data = make(map[string][]byte)
+	}
+	if string(secret.Data["token"]) == token && secret.Annotations["mercutio.dev/profile-digest"] == profileDigest {
+		return nil
 	}
 	secret.Data["token"] = []byte(token)
 	if secret.Annotations == nil {

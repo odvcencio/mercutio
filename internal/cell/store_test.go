@@ -67,6 +67,48 @@ func TestGarbageCollectRemovesOrphansAndRetainsLiveCells(t *testing.T) {
 	}
 }
 
+func TestReconcileRecreatesMissingLiveSandboxFromDurableState(t *testing.T) {
+	runtime := sandbox.NewMemoryRuntime()
+	store := NewStoreWithOptions(Options{Runtime: runtime})
+	before, err := store.Snapshot("cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Delete(context.Background(), "cell-demo"); err != nil {
+		t.Fatal(err)
+	}
+	after, changed, err := store.Reconcile(context.Background(), "cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || after.Revision != before.Revision+1 || after.Sandbox.Phase != model.SandboxRunning {
+		t.Fatalf("reconciled snapshot=%+v changed=%v", after.Cell, changed)
+	}
+	if _, err := runtime.Observe(context.Background(), "cell-demo"); err != nil {
+		t.Fatalf("sandbox was not recreated: %v", err)
+	}
+	latest := after.Events[len(after.Events)-1]
+	if latest.Action != "sandbox.recreated" || !latest.Authenticated {
+		t.Fatalf("missing recreation receipt: %+v", latest)
+	}
+}
+
+func TestReconcileDoesNotRecreateStoppedSandbox(t *testing.T) {
+	runtime := sandbox.NewMemoryRuntime()
+	store := NewStoreWithOptions(Options{Runtime: runtime})
+	stopped, err := store.Destroy("cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, changed, err := store.Reconcile(context.Background(), "cell-demo")
+	if err != nil || changed || after.Status != model.CellStopped || after.Revision != stopped.Revision {
+		t.Fatalf("stopped reconcile=%+v changed=%v err=%v", after.Cell, changed, err)
+	}
+	if _, err := runtime.Observe(context.Background(), "cell-demo"); err != sandbox.ErrNotFound {
+		t.Fatalf("stopped sandbox was recreated: %v", err)
+	}
+}
+
 func TestTwentyCreateDestroyCyclesReleaseLiveState(t *testing.T) {
 	runtime := sandbox.NewMemoryRuntime()
 	store := NewStoreWithOptions(Options{Runtime: runtime})
