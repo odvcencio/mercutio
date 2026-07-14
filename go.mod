@@ -9,16 +9,18 @@ require (
 	github.com/chromedp/chromedp v0.15.1
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/odvcencio/gotreesitter v0.35.0
+	github.com/odvcencio/gotreesitter v0.36.1-0.20260714033649-d6d2b55978ef
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.30.3
 	k8s.io/apimachinery v0.30.3
 	k8s.io/client-go v0.30.3
 	m31labs.dev/arbiter v1.9.0
-	m31labs.dev/gosx/editor v0.19.9
+	m31labs.dev/gosx/editor v0.19.10-0.20260714053840-5fe41cbaa5b7
 	m31labs.dev/horizon v0.4.1-0.20260713223007-0337446190e0
 )
+
+require m31labs.dev/canopy v0.18.0 // indirect
 
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
