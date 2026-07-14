@@ -1,6 +1,40 @@
 package intelligence
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestAnalyzeFailsClosedWhenAuthoritativeParseTimesOut(t *testing.T) {
+	service := newWithParseTimeoutMicros(1)
+	source := "package main\n" + strings.Repeat("func generated() { println(1) }\n", 100_000)
+	started := time.Now()
+	analysis := service.Analyze("main.go", "go", source)
+
+	if !strings.Contains(analysis.Error, "intelligence unavailable") || !strings.Contains(analysis.Error, "timeout") {
+		t.Fatalf("analysis error = %q, want unavailable timeout", analysis.Error)
+	}
+	if len(analysis.Highlights) != 0 || len(analysis.Symbols) != 0 {
+		t.Fatalf("timed-out analysis exposed decisions: %+v", analysis)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("timed-out analysis took %s", elapsed)
+	}
+}
+
+func TestAnalyzeIncrementalFailsClosedWhenParseTimesOut(t *testing.T) {
+	service := newWithParseTimeoutMicros(1)
+	source := "package main\n" + strings.Repeat("func generated() { println(1) }\n", 100_000)
+	analysis := service.AnalyzeIncremental("cell-1:main.go", "main.go", "go", source)
+
+	if !strings.Contains(analysis.Error, "parse stopped before accepting input: timeout") {
+		t.Fatalf("analysis error = %q, want parse timeout", analysis.Error)
+	}
+	if len(analysis.Highlights) != 0 || len(analysis.Symbols) != 0 {
+		t.Fatalf("timed-out incremental analysis exposed decisions: %+v", analysis)
+	}
+}
 
 func TestAnalyzeIncrementalMatchesFreshAnalysis(t *testing.T) {
 	service := New()

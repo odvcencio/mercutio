@@ -15,9 +15,12 @@ import (
 // review generation. gotreesitter owns grammar loading; Mercutio only exposes
 // stable editor-facing ranges and symbols.
 type Service struct {
-	mu        sync.Mutex
-	documents map[string]*incrementalDocument
+	mu                 sync.Mutex
+	documents          map[string]*incrementalDocument
+	parseTimeoutMicros uint64
 }
+
+const authoritativeParseTimeoutMicros = uint64(250_000)
 
 type incrementalDocument struct {
 	path          string
@@ -29,7 +32,11 @@ type incrementalDocument struct {
 	tagTree       *gts.Tree
 }
 
-func New() *Service { return &Service{documents: make(map[string]*incrementalDocument)} }
+func New() *Service { return newWithParseTimeoutMicros(authoritativeParseTimeoutMicros) }
+
+func newWithParseTimeoutMicros(timeoutMicros uint64) *Service {
+	return &Service{documents: make(map[string]*incrementalDocument), parseTimeoutMicros: timeoutMicros}
+}
 
 func (s *Service) Analyze(path, language, content string) model.Analysis {
 	result := model.Analysis{Path: path, Language: language}
@@ -44,46 +51,44 @@ func (s *Service) Analyze(path, language, content string) model.Analysis {
 		return result
 	}
 	source := []byte(content)
-	if tree, err := grammars.ParseFilePooled(path, source); err == nil {
+	if tree, err := parseStrict(entry, lang, source, s.parseTimeoutMicros); err == nil {
 		result.HasErrors = tree.RootNode() != nil && tree.RootNode().HasError()
 		tree.Release()
-	} else if !strings.Contains(strings.ToLower(err.Error()), "unsupported file type") {
-		result.Error = err.Error()
+	} else {
+		if tree != nil {
+			tree.Release()
+		}
+		result.Error = "intelligence unavailable: " + err.Error()
+		return result
 	}
 
-	if query := strings.TrimSpace(entry.HighlightQuery); query != "" {
-		var highlighter *gts.Highlighter
-		var err error
-		if entry.TokenSourceFactory == nil {
-			highlighter, err = gts.NewHighlighter(lang, query)
-		} else {
-			highlighter, err = gts.NewHighlighter(lang, query, gts.WithTokenSourceFactory(func(src []byte) gts.TokenSource {
-				return entry.TokenSourceFactory(src, lang)
-			}))
+	highlighter, tagger, problem := newAnalyzers(entry, lang, s.parseTimeoutMicros)
+	result.Error = appendError(result.Error, problem)
+	if highlighter != nil {
+		ranges, tree, err := highlighter.HighlightIncrementalStrict(source, nil)
+		if tree != nil {
+			tree.Release()
 		}
 		if err != nil {
-			result.Error = appendError(result.Error, "highlight query: "+err.Error())
+			result.Error = appendError(result.Error, "highlight parse: "+err.Error())
+			return result
 		} else {
-			for _, item := range highlighter.Highlight(source) {
+			for _, item := range ranges {
 				result.Highlights = append(result.Highlights, model.HighlightRange{Range: rangeFromBytes(item.StartByte, item.EndByte, source), Capture: item.Capture})
 			}
 		}
 	}
 
-	if query := strings.TrimSpace(grammars.ResolveTagsQuery(*entry)); query != "" {
-		var tagger *gts.Tagger
-		var err error
-		if entry.TokenSourceFactory == nil {
-			tagger, err = gts.NewTagger(lang, query)
-		} else {
-			tagger, err = gts.NewTagger(lang, query, gts.WithTaggerTokenSourceFactory(func(src []byte) gts.TokenSource {
-				return entry.TokenSourceFactory(src, lang)
-			}))
+	if tagger != nil {
+		tags, tree, err := tagger.TagIncrementalStrict(source, nil)
+		if tree != nil {
+			tree.Release()
 		}
 		if err != nil {
-			result.Error = appendError(result.Error, "tags query: "+err.Error())
+			result.Error = appendError(result.Error, "tags parse: "+err.Error())
+			result.Highlights = nil
 		} else {
-			for _, item := range tagger.Tag(source) {
+			for _, item := range tags {
 				result.Symbols = append(result.Symbols, model.Symbol{
 					Kind:      item.Kind,
 					Name:      item.Name,
@@ -125,7 +130,7 @@ func (s *Service) AnalyzeIncremental(key, path, language, content string) model.
 			state.release()
 		}
 		state = &incrementalDocument{path: parsePath, language: result.Language}
-		state.highlighter, state.tagger, result.Error = newAnalyzers(entry, lang)
+		state.highlighter, state.tagger, result.Error = newAnalyzers(entry, lang, s.parseTimeoutMicros)
 		if state.highlighter == nil && state.tagger == nil {
 			// Preserve the full parser fallback for grammars without editor
 			// queries, while keeping the same stable API shape.
@@ -135,30 +140,53 @@ func (s *Service) AnalyzeIncremental(key, path, language, content string) model.
 		s.documents[key] = state
 	}
 
+	parseUnavailable := false
 	if state.highlighter != nil {
 		if state.highlightTree != nil {
 			state.highlightTree.Edit(inputEdit(state.source, source))
 		}
-		ranges, tree := state.highlighter.HighlightIncremental(source, state.highlightTree)
+		ranges, tree, err := state.highlighter.HighlightIncrementalStrict(source, state.highlightTree)
 		if state.highlightTree != nil && state.highlightTree != tree {
 			state.highlightTree.Release()
 		}
-		state.highlightTree = tree
+		if err != nil {
+			if tree != nil {
+				tree.Release()
+			}
+			state.highlightTree = nil
+			result.Error = appendError(result.Error, "highlight parse: "+err.Error())
+			parseUnavailable = true
+		} else {
+			state.highlightTree = tree
+		}
 		for _, item := range ranges {
 			result.Highlights = append(result.Highlights, model.HighlightRange{
 				Range: rangeFromBytes(item.StartByte, item.EndByte, source), Capture: item.Capture,
 			})
 		}
 	}
-	if state.tagger != nil {
+	if parseUnavailable && state.tagTree != nil {
+		state.tagTree.Release()
+		state.tagTree = nil
+	}
+	if state.tagger != nil && !parseUnavailable {
 		if state.tagTree != nil {
 			state.tagTree.Edit(inputEdit(state.source, source))
 		}
-		tags, tree := state.tagger.TagIncremental(source, state.tagTree)
+		tags, tree, err := state.tagger.TagIncrementalStrict(source, state.tagTree)
 		if state.tagTree != nil && state.tagTree != tree {
 			state.tagTree.Release()
 		}
-		state.tagTree = tree
+		if err != nil {
+			if tree != nil {
+				tree.Release()
+			}
+			state.tagTree = nil
+			result.Error = appendError(result.Error, "tags parse: "+err.Error())
+			parseUnavailable = true
+		} else {
+			state.tagTree = tree
+		}
 		for _, item := range tags {
 			result.Symbols = append(result.Symbols, model.Symbol{
 				Kind: item.Kind, Name: item.Name,
@@ -166,6 +194,10 @@ func (s *Service) AnalyzeIncremental(key, path, language, content string) model.
 				NameRange: rangeFrom(item.NameRange.StartByte, item.NameRange.EndByte, item.NameRange.StartPoint, item.NameRange.EndPoint),
 			})
 		}
+	}
+	if parseUnavailable {
+		result.Highlights = nil
+		result.Symbols = nil
 	}
 	if state.highlightTree != nil && state.highlightTree.RootNode() != nil {
 		result.HasErrors = state.highlightTree.RootNode().HasError()
@@ -193,19 +225,19 @@ func parserPath(path string) string {
 	}
 }
 
-func newAnalyzers(entry *grammars.LangEntry, lang *gts.Language) (*gts.Highlighter, *gts.Tagger, string) {
+func newAnalyzers(entry *grammars.LangEntry, lang *gts.Language, timeoutMicros uint64) (*gts.Highlighter, *gts.Tagger, string) {
 	var highlighter *gts.Highlighter
 	var tagger *gts.Tagger
 	var problem string
 	if query := strings.TrimSpace(entry.HighlightQuery); query != "" {
 		var err error
-		if entry.TokenSourceFactory == nil {
-			highlighter, err = gts.NewHighlighter(lang, query)
-		} else {
-			highlighter, err = gts.NewHighlighter(lang, query, gts.WithTokenSourceFactory(func(src []byte) gts.TokenSource {
+		options := []gts.HighlighterOption{gts.WithHighlighterTimeoutMicros(timeoutMicros)}
+		if entry.TokenSourceFactory != nil {
+			options = append(options, gts.WithTokenSourceFactory(func(src []byte) gts.TokenSource {
 				return entry.TokenSourceFactory(src, lang)
 			}))
 		}
+		highlighter, err = gts.NewHighlighter(lang, query, options...)
 		if err != nil {
 			problem = appendError(problem, "highlight query: "+err.Error())
 			highlighter = nil
@@ -213,19 +245,28 @@ func newAnalyzers(entry *grammars.LangEntry, lang *gts.Language) (*gts.Highlight
 	}
 	if query := strings.TrimSpace(grammars.ResolveTagsQuery(*entry)); query != "" {
 		var err error
-		if entry.TokenSourceFactory == nil {
-			tagger, err = gts.NewTagger(lang, query)
-		} else {
-			tagger, err = gts.NewTagger(lang, query, gts.WithTaggerTokenSourceFactory(func(src []byte) gts.TokenSource {
+		options := []gts.TaggerOption{gts.WithTaggerTimeoutMicros(timeoutMicros)}
+		if entry.TokenSourceFactory != nil {
+			options = append(options, gts.WithTaggerTokenSourceFactory(func(src []byte) gts.TokenSource {
 				return entry.TokenSourceFactory(src, lang)
 			}))
 		}
+		tagger, err = gts.NewTagger(lang, query, options...)
 		if err != nil {
 			problem = appendError(problem, "tags query: "+err.Error())
 			tagger = nil
 		}
 	}
 	return highlighter, tagger, problem
+}
+
+func parseStrict(entry *grammars.LangEntry, lang *gts.Language, source []byte, timeoutMicros uint64) (*gts.Tree, error) {
+	parser := gts.NewParser(lang)
+	parser.SetTimeoutMicros(timeoutMicros)
+	if entry.TokenSourceFactory == nil {
+		return parser.ParseStrict(source)
+	}
+	return parser.ParseWithTokenSourceStrict(source, entry.TokenSourceFactory(source, lang))
 }
 
 func (d *incrementalDocument) release() {
