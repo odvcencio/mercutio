@@ -14,7 +14,6 @@ import (
 	"m31labs.dev/mercutio/internal/cell"
 	"m31labs.dev/mercutio/internal/intelligence"
 	"m31labs.dev/mercutio/internal/model"
-	"m31labs.dev/mercutio/internal/sandbox"
 	"m31labs.dev/mercutio/internal/shadow"
 	"m31labs.dev/mercutio/internal/transport"
 )
@@ -388,25 +387,6 @@ func (h *Handler) ArmState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, state)
-}
-
-func (h *Handler) WorkspaceDevice(w http.ResponseWriter, r *http.Request) {
-	id, err := pathParam(r.URL.Path, "cells", 2)
-	if err != nil {
-		errorJSON(w, http.StatusBadRequest, err)
-		return
-	}
-	defer r.Body.Close()
-	var input sandbox.MountDevices
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		errorJSON(w, http.StatusBadRequest, err)
-		return
-	}
-	if err := h.store.RecordMountDevices(r.Context(), id, r.Header.Get("X-Mercutio-Arm-Token"), input); err != nil {
-		errorJSON(w, http.StatusForbidden, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) InternalEvent(w http.ResponseWriter, r *http.Request) {

@@ -27,7 +27,7 @@ spec:
     spec:
       serviceAccountName: {{ include "mercutio.fullname" . }}-nodeagent
       automountServiceAccountToken: false
-      hostPID: false
+      hostPID: true
       hostNetwork: false
       hostIPC: false
       containers:

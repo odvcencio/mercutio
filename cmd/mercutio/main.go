@@ -46,10 +46,6 @@ func main() {
 		runArmgate(os.Args[2:])
 		return
 	}
-	if len(os.Args) > 1 && os.Args[1] == "workspace-probe" {
-		runWorkspaceProbe(os.Args[2:])
-		return
-	}
 	if len(os.Args) > 1 && os.Args[1] == "doctor" {
 		os.Exit(runDoctor(os.Args[2:], os.Stdout))
 	}
@@ -152,7 +148,6 @@ func main() {
 	app.Mount("POST /api/internal/tier2/consume", http.HandlerFunc(apiHandler.ConsumeSecretGrant))
 	app.Mount("POST /api/internal/cells/{cellID}/armed", authn.RequireInternal(http.HandlerFunc(apiHandler.Armed)))
 	app.Mount("GET /api/internal/cells/{cellID}/arm-state", http.HandlerFunc(apiHandler.ArmState))
-	app.Mount("POST /api/internal/cells/{cellID}/workspace-device", http.HandlerFunc(apiHandler.WorkspaceDevice))
 	app.Mount("POST /api/internal/telemetry/kernel", authn.RequireInternal(http.HandlerFunc(apiHandler.KernelTelemetry)))
 	app.Mount("GET /api/internal/nodes/{nodeID}/telemetry-cursor", authn.RequireInternal(http.HandlerFunc(apiHandler.NodeTelemetryCursor)))
 	app.Mount("GET /api/internal/nodes/{nodeID}/action-decisions", authn.RequireInternal(http.HandlerFunc(apiHandler.NodeActionDecisions)))

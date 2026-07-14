@@ -2200,17 +2200,6 @@ func (s *Store) VerifyArmToken(id, token string) bool {
 	return err == nil && claims.Role == "armgate"
 }
 
-func (s *Store) RecordMountDevices(ctx context.Context, id, token string, devices sandbox.MountDevices) error {
-	if devices.Workspace == 0 || devices.Scratch == 0 || devices.Runtime == 0 || !s.VerifyArmToken(id, token) {
-		return fmt.Errorf("invalid writable mount device report")
-	}
-	recorder, ok := s.runtime.(sandbox.MountDeviceRecorder)
-	if !ok {
-		return fmt.Errorf("sandbox runtime cannot record writable mount devices")
-	}
-	return recorder.RecordMountDevices(ctx, id, devices)
-}
-
 func (s *Store) File(id, path string) (model.File, error) {
 	if secrets.IsSensitivePath(path) {
 		return model.File{}, fmt.Errorf("sensitive path %q is only available through the secret broker", path)

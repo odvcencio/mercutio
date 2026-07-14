@@ -51,23 +51,6 @@ data:
               mountPath: /workspace
             - name: scratch
               mountPath: /tmp
-        - name: report-workspace-device
-          image: {{ .Values.sandbox.armgateImage }}
-          args: ["workspace-probe", "--cell", "{{`{{CELL_ID}}`}}", "--control", "http://{{ include "mercutio.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}", "--workspace", "/workspace/repo", "--scratch", "/tmp", "--runtime", "/run/mercutio"]
-          securityContext: *restricted
-          env:
-            - name: MERCUTIO_ARM_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: "{{`{{ARM_SECRET_REF}}`}}"
-                  key: token
-          volumeMounts:
-            - name: workspace
-              mountPath: /workspace
-            - name: scratch
-              mountPath: /tmp
-            - name: runtime
-              mountPath: /run/mercutio
         - name: armgate
           image: {{ .Values.sandbox.armgateImage }}
           args: ["armgate", "--cell", "{{`{{CELL_ID}}`}}", "--control", "http://{{ include "mercutio.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}", "--output", "/run/mercutio/armed"]
@@ -79,6 +62,9 @@ data:
                   name: "{{`{{ARM_SECRET_REF}}`}}"
                   key: token
           volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+              readOnly: true
             - name: runtime
               mountPath: /run/mercutio
             - name: scratch

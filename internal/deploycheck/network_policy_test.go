@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 )
@@ -47,6 +48,40 @@ func TestCellEgressPoliciesExcludeProtectedNetworks(t *testing.T) {
 	}
 	if checked != 6 {
 		t.Fatalf("checked %d profile egress policies, want 6", checked)
+	}
+}
+
+func TestNodeAgentUsesHostProcessMetadataWithoutCellVolumeMounts(t *testing.T) {
+	file, err := os.Open("../../deploy/manifests/mercutio.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	decoder := yaml.NewYAMLOrJSONDecoder(file, 4096)
+	checked := 0
+	for {
+		var daemonSet appsv1.DaemonSet
+		if err := decoder.Decode(&daemonSet); err != nil {
+			if err == io.EOF {
+				break
+			}
+			t.Fatal(err)
+		}
+		if daemonSet.Kind != "DaemonSet" || daemonSet.Spec.Template.Labels["app.kubernetes.io/component"] != "nodeagent" {
+			continue
+		}
+		checked++
+		if !daemonSet.Spec.Template.Spec.HostPID {
+			t.Fatal("nodeagent cannot resolve host cgroup processes without hostPID")
+		}
+		for _, volume := range daemonSet.Spec.Template.Spec.Volumes {
+			if volume.HostPath != nil && strings.HasPrefix(volume.HostPath.Path, "/var/lib/kubelet") {
+				t.Fatalf("nodeagent mounts a cell-volume path: %s", volume.HostPath.Path)
+			}
+		}
+	}
+	if checked != 1 {
+		t.Fatalf("checked %d nodeagent daemonsets, want 1", checked)
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -71,16 +70,6 @@ type Runtime interface {
 	Delete(context.Context, string) error
 }
 
-type MountDevices struct {
-	Workspace uint64 `json:"workspace"`
-	Scratch   uint64 `json:"scratch"`
-	Runtime   uint64 `json:"runtime"`
-}
-
-type MountDeviceRecorder interface {
-	RecordMountDevices(context.Context, string, MountDevices) error
-}
-
 type NodeCell struct {
 	ID            string   `json:"id"`
 	Namespace     string   `json:"namespace"`
@@ -88,9 +77,6 @@ type NodeCell struct {
 	PodUID        string   `json:"podUID"`
 	Profile       string   `json:"profile"`
 	NodeID        string   `json:"nodeID"`
-	WorktreeDev   uint64   `json:"worktreeDev"`
-	ScratchDev    uint64   `json:"scratchDev"`
-	RuntimeDev    uint64   `json:"runtimeDev"`
 	AllowedEgress []string `json:"allowedEgress"`
 	Programs      []string `json:"programs"`
 	ProfileDigest string   `json:"profileDigest"`
@@ -186,10 +172,6 @@ func (r *MemoryRuntime) Delete(_ context.Context, cellID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.pods, cellID)
-	return nil
-}
-
-func (r *MemoryRuntime) RecordMountDevices(_ context.Context, _ string, _ MountDevices) error {
 	return nil
 }
 
@@ -493,17 +475,14 @@ func (r *KubernetesRuntime) NodeCells(ctx context.Context, nodeID string) ([]Nod
 				continue
 			}
 			cellID := pod.Labels["mercutio.dev/cell-id"]
-			worktreeDev, workErr := strconv.ParseUint(pod.Annotations["mercutio.dev/workspace-device"], 10, 64)
-			scratchDev, scratchErr := strconv.ParseUint(pod.Annotations["mercutio.dev/scratch-device"], 10, 64)
-			runtimeDev, runtimeErr := strconv.ParseUint(pod.Annotations["mercutio.dev/runtime-device"], 10, 64)
-			if cellID == "" || workErr != nil || scratchErr != nil || runtimeErr != nil || worktreeDev == 0 || scratchDev == 0 || runtimeDev == 0 {
+			if cellID == "" {
 				continue
 			}
 			var manifest policy.Manifest
 			if err := json.Unmarshal([]byte(pod.Annotations["mercutio.dev/capability-manifest"]), &manifest); err != nil || manifest.ProfileDigest == "" {
 				continue
 			}
-			result = append(result, NodeCell{ID: cellID, Namespace: pod.Namespace, PodName: pod.Name, PodUID: string(pod.UID), Profile: defaultValue(pod.Labels["mercutio.dev/profile"], "standard"), NodeID: nodeID, WorktreeDev: worktreeDev, ScratchDev: scratchDev, RuntimeDev: runtimeDev, AllowedEgress: append([]string(nil), manifest.Egress...), Programs: append([]string(nil), manifest.Programs...), ProfileDigest: manifest.ProfileDigest})
+			result = append(result, NodeCell{ID: cellID, Namespace: pod.Namespace, PodName: pod.Name, PodUID: string(pod.UID), Profile: defaultValue(pod.Labels["mercutio.dev/profile"], "standard"), NodeID: nodeID, AllowedEgress: append([]string(nil), manifest.Egress...), Programs: append([]string(nil), manifest.Programs...), ProfileDigest: manifest.ProfileDigest})
 		}
 	}
 	return result, nil
@@ -528,28 +507,6 @@ func (r *KubernetesRuntime) Delete(ctx context.Context, cellID string) error {
 		}
 	}
 	return nil
-}
-
-func (r *KubernetesRuntime) RecordMountDevices(ctx context.Context, cellID string, devices MountDevices) error {
-	for _, namespace := range r.cellNamespaces() {
-		pods, err := r.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: "mercutio.dev/cell-id=" + cellID})
-		if err != nil {
-			return err
-		}
-		if len(pods.Items) == 0 {
-			continue
-		}
-		pod := pods.Items[0].DeepCopy()
-		if pod.Annotations == nil {
-			pod.Annotations = map[string]string{}
-		}
-		pod.Annotations["mercutio.dev/workspace-device"] = fmt.Sprint(devices.Workspace)
-		pod.Annotations["mercutio.dev/scratch-device"] = fmt.Sprint(devices.Scratch)
-		pod.Annotations["mercutio.dev/runtime-device"] = fmt.Sprint(devices.Runtime)
-		_, err = r.client.CoreV1().Pods(namespace).Update(ctx, pod, metav1.UpdateOptions{})
-		return err
-	}
-	return ErrNotFound
 }
 
 func (r *KubernetesRuntime) ensureCellResource(ctx context.Context, namespace string, spec Spec) error {
@@ -741,8 +698,8 @@ func validateRenderedPod(pod *corev1.Pod) error {
 		if container.Name == "armgate" && !hasExactSecretEnv(container, "MERCUTIO_ARM_TOKEN", credentialSecretRefName(pod.Labels["mercutio.dev/cell-id"], "arm"), "token") {
 			return fmt.Errorf("armgate requires only the cell arm capability")
 		}
-		if container.Name == "armgate" && mountsVolume(container, "workspace") {
-			return fmt.Errorf("armgate may not mount the cell workspace")
+		if container.Name == "armgate" && !mountsVolumeReadOnly(container, "workspace") {
+			return fmt.Errorf("armgate requires a read-only workspace mount for host mount discovery")
 		}
 	}
 	if !armgate {
@@ -781,10 +738,10 @@ func validateRenderedPod(pod *corev1.Pod) error {
 	return nil
 }
 
-func mountsVolume(container corev1.Container, name string) bool {
+func mountsVolumeReadOnly(container corev1.Container, name string) bool {
 	for _, mount := range container.VolumeMounts {
 		if mount.Name == name {
-			return true
+			return mount.ReadOnly
 		}
 	}
 	return false
