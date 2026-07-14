@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"net/smtp"
 	"os"
 	"strings"
+	"time"
 
 	gosxauth "m31labs.dev/gosx/auth"
 	"m31labs.dev/gosx/session"
@@ -337,6 +339,48 @@ func smtpMagicLinkSenderFromEnv() (gosxauth.MagicLinkSender, bool, error) {
 			auth = smtp.PlainAuth("", username, password, host)
 		}
 		message := []byte("From: " + from.String() + "\r\nTo: " + to.String() + "\r\nSubject: Mercutio sign-in\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nOpen this single-use link to sign in to Mercutio:\r\n" + delivery.URL + "\r\n")
-		return smtp.SendMail(address, auth, from.Address, []string{to.Address}, message)
+		return sendSMTPStartTLS(address, host, auth, from.Address, to.Address, message)
 	}), true, nil
+}
+
+func sendSMTPStartTLS(address, host string, auth smtp.Auth, from, to string, message []byte) error {
+	connection, err := net.DialTimeout("tcp", address, 15*time.Second)
+	if err != nil {
+		return err
+	}
+	client, err := smtp.NewClient(connection, host)
+	if err != nil {
+		_ = connection.Close()
+		return err
+	}
+	defer client.Close()
+	if ok, _ := client.Extension("STARTTLS"); !ok {
+		return fmt.Errorf("SMTP server does not require STARTTLS")
+	}
+	if err := client.StartTLS(&tls.Config{MinVersion: tls.VersionTLS12, ServerName: host}); err != nil {
+		return fmt.Errorf("SMTP STARTTLS: %w", err)
+	}
+	if auth != nil {
+		if err := client.Auth(auth); err != nil {
+			return err
+		}
+	}
+	if err := client.Mail(from); err != nil {
+		return err
+	}
+	if err := client.Rcpt(to); err != nil {
+		return err
+	}
+	writer, err := client.Data()
+	if err != nil {
+		return err
+	}
+	if _, err = writer.Write(message); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	if err = writer.Close(); err != nil {
+		return err
+	}
+	return client.Quit()
 }

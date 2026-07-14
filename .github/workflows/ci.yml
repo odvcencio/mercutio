@@ -21,6 +21,8 @@ jobs:
         run: make test
       - name: Verify tagged substrate dependencies
         run: make dependency-check
+      - name: Enforce privileged module boundaries
+        run: make module-boundary-check
       - name: Race-sensitive state and transport tests
         run: make race
       - name: Vet
@@ -29,6 +31,8 @@ jobs:
         run: make build
       - name: Verify generated enforcement artifacts
         run: make nodeagent-check-generated
+      - name: Verify governed profile artifacts
+        run: make profile-check
       - name: Enforce GoSX-only product UI
         run: test -z "$(find . -path './.git' -prune -o -name '*.js' -print)"
       - uses: azure/setup-helm@v4

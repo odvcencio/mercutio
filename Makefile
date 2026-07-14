@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: run test race vet build check dependency-check ui-check browser-e2e kernel-integration nodeagent-generate nodeagent-check-generated profile-check helm-check helm-manifest helm-manifest-check
+.PHONY: run test race vet build check dependency-check module-boundary-check ui-check browser-e2e kernel-integration nodeagent-generate nodeagent-check-generated profile-check helm-check helm-manifest helm-manifest-check
 
 GO ?= go
 HZN ?= $(GO) run m31labs.dev/horizon/cmd/hzn
@@ -23,6 +23,11 @@ dependency-check:
 	test "$$(printf '%s\n' "$$versions" | sed '/^$$/d' | wc -l)" -eq 3; \
 	! printf '%s\n' "$$versions" | grep -Eq -- '-[0-9]{14}-[0-9a-f]{12}$$'
 	@cd nodeagent && version=$$($(GO) list -m -f '{{if eq .Path "github.com/odvcencio/gotreesitter"}}{{.Version}}{{end}}' all); test "$$version" = "v0.35.0"
+
+module-boundary-check:
+	@bad=$$(cd nodeagent && $(GO) list -deps ./... | grep -E '^(m31labs.dev/gosx($$|/)|k8s.io/)' || true); \
+	test -z "$$bad" || { echo "forbidden Node Agent dependencies:" >&2; echo "$$bad" >&2; exit 1; }
+	@! grep -R --include='*.go' -E 'm31labs.dev/mercutio/(internal|cmd)' nodeagent
 
 ui-check:
 	@test -z "$$(find . -path './.git' -prune -o -name '*.js' -print)"
@@ -70,4 +75,4 @@ helm-manifest-check:
 profile-check:
 	$(GO) run ./cmd/mercutio-profile -check -horizon-manifest nodeagent/generated/mercutio.cap.json
 
-check: dependency-check ui-check test race vet build nodeagent-check-generated profile-check helm-check helm-manifest-check
+check: dependency-check module-boundary-check ui-check test race vet build nodeagent-check-generated profile-check helm-check helm-manifest-check
