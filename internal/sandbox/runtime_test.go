@@ -8,8 +8,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 func TestMemoryRuntimeLifecycle(t *testing.T) {
@@ -128,6 +130,50 @@ func TestKubernetesRuntimeNodeCellsReturnsMinimalEnforcementMetadata(t *testing.
 	}
 	if len(cells) != 1 || cells[0].ID != "cell-a" || cells[0].NodeID != "node-a" || cells[0].PodUID != "pod-uid" || cells[0].WorktreeDev != 11 || cells[0].ProfileDigest != "sha256:profile" || len(cells[0].Programs) != 1 {
 		t.Fatalf("cells=%+v", cells)
+	}
+}
+
+func TestKubernetesRuntimeDeletesEveryCellObjectBySharedSelector(t *testing.T) {
+	labels := func(cellID string) map[string]string {
+		return map[string]string{"mercutio.dev/managed": "true", "mercutio.dev/cell-id": cellID}
+	}
+	client := fake.NewSimpleClientset(
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "renamed-pod", Namespace: "cells", Labels: labels("cell-a")}},
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "other-pod", Namespace: "cells", Labels: labels("cell-b")}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "nonstandard-secret-name", Namespace: "cells", Labels: labels("cell-a")}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "other-secret", Namespace: "cells", Labels: labels("cell-b")}},
+	)
+	cellObject := func(name, cellID string) *unstructured.Unstructured {
+		object := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "mercutio.dev/v1alpha1", "kind": "Cell", "metadata": map[string]any{"name": name, "namespace": "cells"}}}
+		object.SetLabels(labels(cellID))
+		return object
+	}
+	dynamicClient := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(k8sruntime.NewScheme(), map[schema.GroupVersionResource]string{cellResource: "CellList"}, cellObject("renamed-cell-resource", "cell-a"), cellObject("other-cell-resource", "cell-b"))
+	runtime := NewKubernetesRuntime(client, KubernetesRuntimeOptions{Namespace: "cells", DynamicClient: dynamicClient})
+	for i := 0; i < 2; i++ {
+		if err := runtime.Delete(t.Context(), "cell-a"); err != nil {
+			t.Fatalf("delete %d: %v", i, err)
+		}
+	}
+	wantSelector := "mercutio.dev/cell-id=cell-a,mercutio.dev/managed=true"
+	assertSelectorDeletes := func(actions []k8stesting.Action, resources map[string]int) {
+		t.Helper()
+		for _, action := range actions {
+			if action.GetVerb() != "delete-collection" {
+				continue
+			}
+			deletion, ok := action.(k8stesting.DeleteCollectionAction)
+			if !ok || deletion.GetListRestrictions().Labels.String() != wantSelector {
+				t.Fatalf("delete action lacks shared selector: %#v", action)
+			}
+			resources[action.GetResource().Resource]++
+		}
+	}
+	resources := map[string]int{}
+	assertSelectorDeletes(client.Actions(), resources)
+	assertSelectorDeletes(dynamicClient.Actions(), resources)
+	if resources["pods"] != 2 || resources["secrets"] != 2 || resources["cells"] != 2 {
+		t.Fatalf("selector deletion counts=%v", resources)
 	}
 }
 

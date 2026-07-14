@@ -503,14 +503,12 @@ func (r *KubernetesRuntime) Delete(ctx context.Context, cellID string) error {
 		if err := r.client.CoreV1().Pods(namespace).DeleteCollection(ctx, metav1.DeleteOptions{}, metav1.ListOptions{LabelSelector: selector}); err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("delete sandbox pod collection: %w", err)
 		}
-		for _, purpose := range []string{"attach", "arm"} {
-			if err := r.client.CoreV1().Secrets(namespace).Delete(ctx, credentialSecretRefName(cellID, purpose), metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
-				return fmt.Errorf("delete sandbox %s credential: %w", purpose, err)
-			}
+		if err := r.client.CoreV1().Secrets(namespace).DeleteCollection(ctx, metav1.DeleteOptions{}, metav1.ListOptions{LabelSelector: selector}); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("delete sandbox credential collection: %w", err)
 		}
 		if r.dynamic != nil {
-			if err := r.dynamic.Resource(cellResource).Namespace(namespace).Delete(ctx, dnsName(cellID), metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
-				return fmt.Errorf("delete Cell resource: %w", err)
+			if err := r.dynamic.Resource(cellResource).Namespace(namespace).DeleteCollection(ctx, metav1.DeleteOptions{}, metav1.ListOptions{LabelSelector: selector}); err != nil && !apierrors.IsNotFound(err) {
+				return fmt.Errorf("delete Cell resource collection: %w", err)
 			}
 		}
 	}
