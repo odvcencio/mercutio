@@ -19,9 +19,9 @@ race:
 	cd nodeagent && $(GO) test -race ./internal/agent
 
 dependency-check:
-	@versions=$$($(GO) list -m -f '{{if or (eq .Path "m31labs.dev/gosx") (eq .Path "m31labs.dev/gosx/editor") (eq .Path "github.com/odvcencio/gotreesitter")}}{{.Path}} {{.Version}}{{end}}' all); \
-	test "$$(printf '%s\n' "$$versions" | sed '/^$$/d' | wc -l)" -eq 3; \
-	! printf '%s\n' "$$versions" | grep -Eq -- '-[0-9]{14}-[0-9a-f]{12}$$'
+	@test "$$($(GO) list -m -f '{{if eq .Path "m31labs.dev/gosx"}}{{.Version}}{{end}}' all)" = "v0.31.5"
+	@test "$$($(GO) list -m -f '{{if eq .Path "m31labs.dev/gosx/editor"}}{{.Version}}{{end}}' all)" = "v0.19.10"
+	@test "$$($(GO) list -m -f '{{if eq .Path "github.com/odvcencio/gotreesitter"}}{{.Version}}{{end}}' all)" = "v0.36.1-0.20260714033649-d6d2b55978ef"
 	@cd nodeagent && version=$$($(GO) list -m -f '{{if eq .Path "github.com/odvcencio/gotreesitter"}}{{.Version}}{{end}}' all); test "$$version" = "v0.35.0"
 
 module-boundary-check:

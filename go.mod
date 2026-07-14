@@ -2,7 +2,7 @@ module m31labs.dev/mercutio
 
 go 1.26
 
-require m31labs.dev/gosx v0.30.14-0.20260714145351-9eb170ff6e5e
+require m31labs.dev/gosx v0.31.5
 
 require (
 	github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc
@@ -16,7 +16,7 @@ require (
 	k8s.io/apimachinery v0.30.3
 	k8s.io/client-go v0.30.3
 	m31labs.dev/arbiter v1.9.0
-	m31labs.dev/gosx/editor v0.19.10-0.20260714152520-7385ea4d6b02
+	m31labs.dev/gosx/editor v0.19.10
 	m31labs.dev/horizon v0.4.1-0.20260714071907-36aa76e9d023
 )
 
