@@ -19,7 +19,7 @@ const (
 
 var strictExecPaths = []string{
 	"/usr/local/go/bin/go", "/usr/bin/go", "/usr/bin/node", "/usr/bin/python3", "/usr/bin/cargo",
-	"/bin/sh", "/usr/bin/sh", "/usr/local/bin/claude", "/usr/bin/claude", "/usr/local/bin/tiller", "/usr/bin/tiller",
+	"/usr/local/bin/claude", "/usr/bin/claude", "/usr/local/bin/tiller", "/usr/bin/tiller",
 	"/usr/bin/git", "/usr/bin/graft", "/usr/bin/buckley", "/usr/local/bin/graft", "/usr/local/bin/buckley",
 	"/bin/cat", "/bin/cp", "/bin/cut", "/bin/date", "/bin/echo", "/bin/env", "/bin/find", "/bin/grep",
 	"/bin/head", "/bin/ls", "/bin/mkdir", "/bin/mv", "/bin/pwd", "/bin/rm", "/bin/sed", "/bin/sort",

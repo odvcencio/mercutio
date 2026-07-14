@@ -52,7 +52,19 @@ spec:
   policyTypes: [Egress]
   egress:
     - to:
-        - ipBlock: {cidr: 0.0.0.0/0}
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- range $.Values.networkPolicy.protectedIPv4CIDRs }}
+              - {{ . | quote }}
+              {{- end }}
+              - {{ $.Values.networkPolicy.kubernetesAPICIDR | quote }}
+        - ipBlock:
+            cidr: ::/0
+            except:
+              {{- range $.Values.networkPolicy.protectedIPv6CIDRs }}
+              - {{ . | quote }}
+              {{- end }}
       ports:
         - {protocol: TCP, port: 443}
 ---
@@ -68,7 +80,20 @@ spec:
       mercutio.dev/network-profile: open
   policyTypes: [Egress]
   egress:
-    - {}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- range $.Values.networkPolicy.protectedIPv4CIDRs }}
+              - {{ . | quote }}
+              {{- end }}
+              - {{ $.Values.networkPolicy.kubernetesAPICIDR | quote }}
+        - ipBlock:
+            cidr: ::/0
+            except:
+              {{- range $.Values.networkPolicy.protectedIPv6CIDRs }}
+              - {{ . | quote }}
+              {{- end }}
 ---
 {{- end }}
 apiVersion: networking.k8s.io/v1
