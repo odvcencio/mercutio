@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 
 	"m31labs.dev/gosx/crdt"
 	"m31labs.dev/mercutio/internal/capability"
@@ -36,20 +37,30 @@ type textDocument struct {
 	text crdt.ObjID
 }
 
+// TextAnchor identifies a logical text position relative to a stable CRDT
+// element so a cursor survives concurrent inserts and deletes.
+type TextAnchor struct {
+	ElemID   string `json:"elemID,omitempty"`
+	Affinity string `json:"affinity,omitempty"`
+	Boundary string `json:"boundary,omitempty"`
+}
+
 type writerState struct {
-	actor        string
-	activeUntil  time.Time
-	before       string
-	historyStart int
+	actor         string
+	activeUntil   time.Time
+	before        string
+	historyStart  int
+	changeGroupID string
 }
 
 type editOperation struct {
-	Actor     string      `json:"actor"`
-	Path      string      `json:"path"`
-	Inserted  []crdt.OpID `json:"inserted,omitempty"`
-	Deleted   []crdt.OpID `json:"deleted,omitempty"`
-	CreatedAt time.Time   `json:"createdAt"`
-	Reverted  bool        `json:"reverted,omitempty"`
+	Actor         string      `json:"actor"`
+	Path          string      `json:"path"`
+	Inserted      []crdt.OpID `json:"inserted,omitempty"`
+	Deleted       []crdt.OpID `json:"deleted,omitempty"`
+	CreatedAt     time.Time   `json:"createdAt"`
+	Reverted      bool        `json:"reverted,omitempty"`
+	ChangeGroupID string      `json:"changeGroupId,omitempty"`
 }
 
 type record struct {
@@ -236,10 +247,8 @@ func docWithText(doc *crdt.Doc, content string) (crdt.ObjID, error) {
 	if err != nil {
 		return "", err
 	}
-	for i, runeValue := range []rune(content) {
-		if err := doc.InsertAt(textID, uint64(i), crdt.StringValue(string(runeValue))); err != nil {
-			return "", err
-		}
+	if _, _, err := doc.SpliceText(textID, 0, 0, content); err != nil {
+		return "", err
 	}
 	_, err = doc.Commit("initial content")
 	return textID, err
@@ -904,6 +913,75 @@ func (s *Store) ApplySplice(id, path string, baseHash uint32, index, deleteCount
 	return snapshot, err
 }
 
+// ResolveCursorAnchors converts browser UTF-16 selection offsets into stable
+// CRDT element anchors before presence is relayed to other actors.
+func (s *Store) ResolveCursorAnchors(id, path string, startUTF16, endUTF16 int) (TextAnchor, TextAnchor, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	r, ok := s.cells[id]
+	if !ok {
+		return TextAnchor{}, TextAnchor{}, fmt.Errorf("cell %q not found", id)
+	}
+	document, ok := r.docs[strings.TrimSpace(path)]
+	if !ok {
+		return TextAnchor{}, TextAnchor{}, fmt.Errorf("file %q not found", path)
+	}
+	content, err := document.doc.TextToString(document.text)
+	if err != nil {
+		return TextAnchor{}, TextAnchor{}, err
+	}
+	startIndex, err := utf16OffsetToRuneIndex(content, startUTF16)
+	if err != nil {
+		return TextAnchor{}, TextAnchor{}, err
+	}
+	endIndex, err := utf16OffsetToRuneIndex(content, endUTF16)
+	if err != nil {
+		return TextAnchor{}, TextAnchor{}, err
+	}
+	start, err := textAnchorAt(document, len([]rune(content)), startIndex)
+	if err != nil {
+		return TextAnchor{}, TextAnchor{}, err
+	}
+	end, err := textAnchorAt(document, len([]rune(content)), endIndex)
+	return start, end, err
+}
+
+func utf16OffsetToRuneIndex(content string, offset int) (int, error) {
+	if offset < 0 {
+		return 0, fmt.Errorf("UTF-16 offset %d is negative", offset)
+	}
+	units, index := 0, 0
+	for _, runeValue := range content {
+		if units == offset {
+			return index, nil
+		}
+		next := units + utf16.RuneLen(runeValue)
+		if offset < next {
+			return 0, fmt.Errorf("UTF-16 offset %d splits a surrogate pair", offset)
+		}
+		units, index = next, index+1
+	}
+	if units != offset {
+		return 0, fmt.Errorf("UTF-16 offset %d exceeds document length %d", offset, units)
+	}
+	return index, nil
+}
+
+func textAnchorAt(document textDocument, length, index int) (TextAnchor, error) {
+	if index < 0 || index > length {
+		return TextAnchor{}, fmt.Errorf("cursor index %d outside document length %d", index, length)
+	}
+	if length == 0 {
+		return TextAnchor{Boundary: "start"}, nil
+	}
+	if index == length {
+		id, err := document.doc.ElementIDAt(document.text, uint64(length-1))
+		return TextAnchor{ElemID: id.String(), Affinity: "after"}, err
+	}
+	id, err := document.doc.ElementIDAt(document.text, uint64(index))
+	return TextAnchor{ElemID: id.String(), Affinity: "before"}, err
+}
+
 func (s *Store) applyEditLocked(id string, r *record, path, content, actor string, refreshReviews bool) (model.CellSnapshot, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -982,7 +1060,11 @@ func (s *Store) applyEditLocked(id string, r *record, path, content, actor strin
 		}
 		current = writer.before
 	}
-	inserted, deleted, err := spliceTextMinimalOps(doc, content)
+	changeGroupID := fmt.Sprintf("edit:%s:%d:%s", id, r.cell.Revision+1, actor)
+	if isAgentActor(actor) && isAgentActor(writer.actor) && writer.actor == actor && agentWriteActive(writer, now) && writer.changeGroupID != "" {
+		changeGroupID = writer.changeGroupID
+	}
+	inserted, deleted, err := spliceTextMinimalOpsGroup(doc, content, changeGroupID)
 	if err != nil {
 		return model.CellSnapshot{}, fmt.Errorf("apply edit: %w", err)
 	}
@@ -998,9 +1080,9 @@ func (s *Store) applyEditLocked(id string, r *record, path, content, actor strin
 		historyStart = writer.historyStart
 	}
 	if len(inserted) > 0 || len(deleted) > 0 {
-		r.history = append(r.history, editOperation{Actor: actor, Path: path, Inserted: inserted, Deleted: deleted, CreatedAt: r.cell.UpdatedAt})
+		r.history = append(r.history, editOperation{Actor: actor, Path: path, Inserted: inserted, Deleted: deleted, CreatedAt: r.cell.UpdatedAt, ChangeGroupID: changeGroupID})
 	}
-	nextWriter := writerState{actor: actor, activeUntil: r.cell.UpdatedAt.Add(90 * time.Second), historyStart: historyStart}
+	nextWriter := writerState{actor: actor, activeUntil: r.cell.UpdatedAt.Add(90 * time.Second), historyStart: historyStart, changeGroupID: changeGroupID}
 	if isAgentActor(actor) {
 		nextWriter.before = current
 		if isAgentActor(writer.actor) && writer.actor == actor && agentWriteActive(writer, now) {
@@ -1182,35 +1264,53 @@ func (s *Store) undoEdit(id, path, actor string, agentOnly bool) (model.CellSnap
 		return model.CellSnapshot{}, fmt.Errorf("no reversible %s edit found for %q", kind, path)
 	}
 	operation := &r.history[index]
-	doc, ok := r.docs[operation.Path]
+	targetPath, targetActor, targetGroupID := operation.Path, operation.Actor, operation.ChangeGroupID
+	doc, ok := r.docs[targetPath]
 	if !ok {
-		return model.CellSnapshot{}, fmt.Errorf("document %q unavailable", operation.Path)
+		return model.CellSnapshot{}, fmt.Errorf("document %q unavailable", targetPath)
 	}
 	beforeContent, err := doc.doc.TextToString(doc.text)
 	if err != nil {
 		return model.CellSnapshot{}, err
 	}
-	applied := 0
-	for i := len(operation.Inserted) - 1; i >= 0; i-- {
-		if err := doc.doc.DeleteByElemID(doc.text, operation.Inserted[i]); err != nil {
-			if strings.Contains(err.Error(), "not found") {
-				continue
+	groupIndexes := []int{index}
+	if targetGroupID != "" {
+		groupIndexes = groupIndexes[:0]
+		for i := len(r.history) - 1; i >= 0; i-- {
+			candidate := r.history[i]
+			if !candidate.Reverted && candidate.Path == targetPath && candidate.Actor == targetActor && candidate.ChangeGroupID == targetGroupID {
+				groupIndexes = append(groupIndexes, i)
 			}
-			return model.CellSnapshot{}, fmt.Errorf("undo inserted element: %w", err)
 		}
-		applied++
 	}
-	for _, elem := range operation.Deleted {
-		if err := doc.doc.ReviveElem(doc.text, elem); err != nil {
-			if strings.Contains(err.Error(), "not found") {
-				continue
+	applied := 0
+	for _, operationIndex := range groupIndexes {
+		groupOperation := &r.history[operationIndex]
+		for i := len(groupOperation.Inserted) - 1; i >= 0; i-- {
+			if err := doc.doc.DeleteByElemID(doc.text, groupOperation.Inserted[i]); err != nil {
+				if strings.Contains(err.Error(), "not found") {
+					continue
+				}
+				return model.CellSnapshot{}, fmt.Errorf("undo inserted element: %w", err)
 			}
-			return model.CellSnapshot{}, fmt.Errorf("undo deleted element: %w", err)
+			applied++
 		}
-		applied++
+		for _, elem := range groupOperation.Deleted {
+			if err := doc.doc.ReviveElem(doc.text, elem); err != nil {
+				if strings.Contains(err.Error(), "not found") {
+					continue
+				}
+				return model.CellSnapshot{}, fmt.Errorf("undo deleted element: %w", err)
+			}
+			applied++
+		}
 	}
 	if applied > 0 {
-		if _, err := doc.doc.Commit("actor-scoped undo"); err != nil {
+		undoGroupID := "undo:" + targetGroupID
+		if targetGroupID == "" {
+			undoGroupID = ""
+		}
+		if _, err := doc.doc.CommitWithGroup("actor-scoped undo", undoGroupID); err != nil {
 			return model.CellSnapshot{}, err
 		}
 	}
@@ -1219,16 +1319,18 @@ func (s *Store) undoEdit(id, path, actor string, agentOnly bool) (model.CellSnap
 		return model.CellSnapshot{}, err
 	}
 	for i := range r.cell.Files {
-		if r.cell.Files[i].Path == operation.Path {
+		if r.cell.Files[i].Path == targetPath {
 			r.cell.Files[i].Content = content
 			r.cell.Files[i].Modified = true
 			break
 		}
 	}
-	if err = syncWorktreeFile(s.worktreeRoot, id, operation.Path, content); err != nil {
+	if err = syncWorktreeFile(s.worktreeRoot, id, targetPath, content); err != nil {
 		return model.CellSnapshot{}, err
 	}
-	operation.Reverted = true
+	for _, operationIndex := range groupIndexes {
+		r.history[operationIndex].Reverted = true
+	}
 	now := time.Now().UTC()
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
@@ -1242,7 +1344,7 @@ func (s *Store) undoEdit(id, path, actor string, agentOnly bool) (model.CellSnap
 		action += ".noop"
 		summary = "Undo had no visible effect because its target elements were already gone"
 	}
-	s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: actor, Actor: actor, Action: action, Summary: summary, Detail: "path=" + operation.Path + "; originalActor=" + operation.Actor, Danger: "medium", Authenticated: true, Timestamp: now})
+	s.appendEventLocked(r, model.Event{Kind: model.EventEdit, Source: actor, Actor: actor, Action: action, Summary: summary, Detail: "path=" + targetPath + "; originalActor=" + targetActor + "; changeGroup=" + targetGroupID, Danger: "medium", Authenticated: true, Timestamp: now})
 	r.cell.Reviews = s.generateReviews(r)
 	return snapshotLocked(r), nil
 }
@@ -1302,6 +1404,10 @@ func spliceTextMinimal(doc textDocument, content string) (int, int, error) {
 }
 
 func spliceTextMinimalOps(doc textDocument, content string) ([]crdt.OpID, []crdt.OpID, error) {
+	return spliceTextMinimalOpsGroup(doc, content, "")
+}
+
+func spliceTextMinimalOpsGroup(doc textDocument, content, changeGroupID string) ([]crdt.OpID, []crdt.OpID, error) {
 	current, err := doc.doc.TextToString(doc.text)
 	if err != nil {
 		return nil, nil, err
@@ -1324,7 +1430,7 @@ func spliceTextMinimalOps(doc textDocument, content string) ([]crdt.OpID, []crdt
 	if err != nil {
 		return nil, nil, err
 	}
-	_, err = doc.doc.Commit("minimal buffer splice")
+	_, err = doc.doc.CommitWithGroup("minimal buffer splice", changeGroupID)
 	return insertedIDs, deletedIDs, err
 }
 

@@ -151,11 +151,18 @@ func renderEditor(cell *model.CellSnapshot, file *model.File, csrfToken string, 
 		return gosx.El("section", gosx.Attrs(gosx.Attr("class", "editor-column")), gosx.El("div", gosx.Attrs(gosx.Attr("class", "file-tabs")), gosx.Fragment(tabs...)), gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-workbench")), renderFileTree(cell, ""), gosx.El("div", gosx.Attrs(gosx.Attr("class", "empty-feed")), gosx.Text("This cell has no files."))))
 	}
 	codeEditor := gosxeditor.New("mercutio-code-editor", gosxeditor.Options{
-		Surface:          gosxeditor.SurfaceCode,
-		Content:          file.Content,
-		Title:            file.Path,
-		Label:            "Code editor for " + file.Path,
-		Language:         editorLanguage(file.Language),
+		Surface: gosxeditor.SurfaceCode,
+		Content: file.Content,
+		Title:   file.Path,
+		Label:   "Code editor for " + file.Path,
+		Code: &gosxeditor.CodeOptions{
+			Language:        string(editorLanguage(file.Language)),
+			TabWidth:        4,
+			InsertSpaces:    true,
+			Gutter:          true,
+			HighlightSource: "external",
+			ExternalUndo:    true,
+		},
 		FormAction:       actionBase + editorAction(file.Path),
 		AutoSaveURL:      actionBase + editorAction(file.Path),
 		CSRFToken:        csrfToken,

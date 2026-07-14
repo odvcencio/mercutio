@@ -19,6 +19,11 @@ func TestPageUsesGoSXActionsWithoutApplicationScripts(t *testing.T) {
 	html := gosx.RenderHTML(Page(state, "cell-1", "main.go", "csrf-token"))
 	for _, want := range []string{
 		`data-gosx-code-surface="true"`,
+		`data-code-tab-width="4"`,
+		`data-code-highlight-source="external"`,
+		`data-code-insert-spaces`,
+		`data-code-gutter`,
+		`data-code-external-undo`,
 		`action="/gosx/action/edit-file"`,
 		`action="/gosx/action/prompt"`,
 		`name="content"`,

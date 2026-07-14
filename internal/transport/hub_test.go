@@ -359,6 +359,47 @@ func TestBrowserBinarySpliceIsActorBoundAndAppliedToCRDT(t *testing.T) {
 	}
 }
 
+func TestBrowserCursorPresenceIsRelayedAsElementAnchors(t *testing.T) {
+	store := cell.NewStore()
+	h := NewCellHub(store)
+	server := httptest.NewServer(http.HandlerFunc(h.ServeHTTP))
+	defer server.Close()
+	token, err := store.MintOperatorCapability("cell-demo", "operator-browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"?cellID=cell-demo&capability="+token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	snapshot, err := store.Snapshot("cell-demo")
+	if err != nil || len(snapshot.Files) == 0 {
+		t.Fatalf("snapshot=%+v err=%v", snapshot, err)
+	}
+	if err := connection.WriteJSON(hub.Message{Event: "presence:cursor", Data: rawJSON(map[string]any{
+		"path": snapshot.Files[0].Path, "start": 0, "end": 1, "coordinateSpace": "utf16",
+	})}); err != nil {
+		t.Fatal(err)
+	}
+	message := readEvent(t, connection, "presence:cursor")
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(message.Data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := payload["start"]; ok {
+		t.Fatalf("raw start offset leaked in anchored cursor: %s", message.Data)
+	}
+	if _, ok := payload["end"]; ok {
+		t.Fatalf("raw end offset leaked in anchored cursor: %s", message.Data)
+	}
+	for _, key := range []string{"startAnchor", "endAnchor", "actorID", "clientID"} {
+		if len(payload[key]) == 0 {
+			t.Fatalf("anchored cursor missing %q: %s", key, message.Data)
+		}
+	}
+}
+
 func TestBrowserReceivesOnlyItsCellCRDTDocuments(t *testing.T) {
 	store := cell.NewStore()
 	other, err := store.Create("https://github.com/example/other", "main", "standard")

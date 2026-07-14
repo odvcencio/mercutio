@@ -198,6 +198,37 @@ func TestActorScopedUndoAndAgentRevertPreserveOtherWriter(t *testing.T) {
 	}
 }
 
+func TestRevertAgentEditRevertsCompleteActiveChangeGroup(t *testing.T) {
+	store := NewStore()
+	path := "cmd/hello/main.go"
+	base, err := store.File("cell-demo", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := base.Content + "// streamed chunk one\n"
+	second := first + "// streamed chunk two\n"
+	if _, err := store.ApplyEdit("cell-demo", path, first, "agent-cell-demo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApplyEdit("cell-demo", path, second, "agent-cell-demo"); err != nil {
+		t.Fatal(err)
+	}
+	history := store.cells["cell-demo"].history
+	if len(history) < 2 || history[len(history)-1].ChangeGroupID == "" || history[len(history)-1].ChangeGroupID != history[len(history)-2].ChangeGroupID {
+		t.Fatalf("streamed edits were not grouped: %+v", history)
+	}
+	reverted, err := store.RevertAgentEdit("cell-demo", path, "operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fileContent(reverted, path); got != base.Content {
+		t.Fatalf("agent group revert=%q want base=%q", got, base.Content)
+	}
+	if !history[len(history)-1].Reverted || !history[len(history)-2].Reverted {
+		t.Fatalf("group operations were not marked reverted: %+v", history[len(history)-2:])
+	}
+}
+
 func TestActorScopedUndoMissingElementsIsNoOpWithNotice(t *testing.T) {
 	store := NewStore()
 	path := "cmd/hello/main.go"

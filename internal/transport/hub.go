@@ -362,13 +362,22 @@ func NewCellHub(store *cell.Store) *CellHub {
 		if !metadataPermission(ctx.Client, "doc:read") {
 			return
 		}
-		var payload map[string]any
-		if json.Unmarshal(ctx.Data, &payload) != nil {
+		var incoming struct {
+			Path            string `json:"path"`
+			Start           int    `json:"start"`
+			End             int    `json:"end"`
+			CoordinateSpace string `json:"coordinateSpace"`
+		}
+		if json.Unmarshal(ctx.Data, &incoming) != nil || incoming.CoordinateSpace != "utf16" {
 			return
 		}
-		payload["clientID"] = ctx.Client.ID
 		cellID, _ := ctx.Client.Metadata("cellID")
-		payload["cellID"] = cellID
+		start, end, err := store.ResolveCursorAnchors(cellID, incoming.Path, incoming.Start, incoming.End)
+		if err != nil {
+			return
+		}
+		actorID, _ := ctx.Client.Metadata("docActor")
+		payload := map[string]any{"clientID": ctx.Client.ID, "actorID": actorID, "cellID": cellID, "path": incoming.Path, "startAnchor": start, "endAnchor": end}
 		h.broadcastCellEvent(cellID, "presence:cursor", payload)
 	})
 	h.On("presence:focus", func(ctx *hub.Context) {

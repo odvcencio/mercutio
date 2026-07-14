@@ -5,11 +5,33 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"m31labs.dev/gosx/crdt"
+	crdtsync "m31labs.dev/gosx/crdt/sync"
 	"m31labs.dev/mercutio/internal/model"
 )
+
+func TestInitialDocumentUsesRunEncodedSyncFrame(t *testing.T) {
+	content := strings.Repeat("func generated() { return }\n", 700)
+	doc := crdt.NewDoc()
+	textID, err := docWithText(doc, content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, ok := doc.GenerateSyncMessage(crdtsync.NewState())
+	if !ok || len(message) >= 64*1024 {
+		t.Fatalf("initial document sync frame=%d ok=%v", len(message), ok)
+	}
+	replica := crdt.NewDoc()
+	if err := replica.ReceiveSyncMessage(crdtsync.NewState(), message); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := replica.TextToString(textID); err != nil || got != content {
+		t.Fatalf("replica length=%d err=%v", len(got), err)
+	}
+}
 
 func FuzzMinimalSpliceMatchesTarget(f *testing.F) {
 	f.Add("hello world", "hello brave world")
