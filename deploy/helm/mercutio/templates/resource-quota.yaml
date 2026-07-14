@@ -1,15 +1,19 @@
 {{- if .Values.quota.enabled }}
+{{- range $profile := list "strict" "standard" "open" }}
 apiVersion: v1
 kind: ResourceQuota
 metadata:
-  name: {{ include "mercutio.fullname" . }}-cells
+  name: {{ include "mercutio.fullname" $ }}-cells
+  namespace: {{ index $.Values.cellNamespaces $profile }}
   labels:
-    {{- include "mercutio.labels" . | nindent 4 }}
+    {{- include "mercutio.labels" $ | nindent 4 }}
 spec:
   hard:
-    pods: {{ .Values.quota.pods | quote }}
-    requests.cpu: {{ .Values.quota.cpu | quote }}
-    limits.cpu: {{ .Values.quota.cpu | quote }}
-    requests.memory: {{ .Values.quota.memory | quote }}
-    limits.memory: {{ .Values.quota.memory | quote }}
+    pods: {{ $.Values.quota.pods | quote }}
+    requests.cpu: {{ $.Values.quota.cpu | quote }}
+    limits.cpu: {{ $.Values.quota.cpu | quote }}
+    requests.memory: {{ $.Values.quota.memory | quote }}
+    limits.memory: {{ $.Values.quota.memory | quote }}
+---
+{{- end }}
 {{- end }}

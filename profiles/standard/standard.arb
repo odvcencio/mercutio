@@ -1,0 +1,16 @@
+# Mercutio standard profile.
+rule DenySensitive priority 1 { when { action == "file" and (resource.domain == "sensitive" or resource.domain == "proc-other") } then Deny { reason: "credential and process secrets are blocked" } }
+rule AskCIWrite priority 2 { when { action == "file" and resource.domain == "ci" and resource.op == "write" } then AskHuman { reason: "CI changes require operator approval" } }
+rule AllowCIRead priority 3 { when { action == "file" and resource.domain == "ci" and resource.op == "read" } then Allow { reason: "CI files are readable" } }
+rule AllowStandardFiles priority 10 { when { action == "file" and (resource.domain == "worktree" or resource.domain == "tmp" or resource.domain == "cache") } then Allow { reason: "standard writable scope" } }
+rule AllowSystemRead priority 10 { when { action == "file" and resource.domain == "system" and resource.op == "read" } then Allow { reason: "system files are readable" } }
+rule DenyStandardFiles priority 90 { when { action == "file" and (resource.domain == "system" or resource.domain == "other") and resource.op == "write" } then Deny { reason: "write outside declared scope" } }
+rule DenyOtherReads priority 90 { when { action == "file" and resource.domain == "other" and resource.op == "read" } then Deny { reason: "undeclared file scope" } }
+
+rule DenyPrivilegeExec priority 1 { when { action == "exec" and resource.domain == "privilege" } then Deny { reason: "privilege tools are blocked" } }
+rule AskWorktreeExec priority 2 { when { action == "exec" and resource.domain == "worktree-binary" } then AskHuman { reason: "unknown worktree binary requires approval" } }
+rule AllowStandardExec priority 10 { when { action == "exec" and (resource.domain == "toolchain" or resource.domain == "vcs" or resource.domain == "coreutils" or resource.domain == "shell" or resource.domain == "network-tool" or resource.domain == "package-manager" or resource.domain == "inline") } then Allow { reason: "standard executable scope" } }
+
+rule AllowStandardNet priority 10 { when { action == "net" and (resource.domain == "control-plane" or resource.domain == "dns" or resource.domain == "registry-mirror" or resource.domain == "dependency") } then Allow { reason: "standard egress allowlist" } }
+rule AskPublicNet priority 15 { when { action == "net" and resource.domain == "public" } then AskHuman { reason: "non-allowlisted egress requires approval" } }
+rule DenyStandardNet priority 20 { when { action == "net" and (resource.domain == "private" or resource.domain == "metadata" or resource.domain == "kubernetes" or resource.domain == "cell") } then Deny { reason: "protected network scope" } }

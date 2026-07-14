@@ -18,10 +18,30 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Test
-        run: go test ./...
+        run: make test
+      - name: Verify tagged substrate dependencies
+        run: make dependency-check
+      - name: Race-sensitive state and transport tests
+        run: make race
       - name: Vet
-        run: go vet ./...
+        run: make vet
       - name: Build
-        run: go build ./cmd/mercutio
-      - name: Check browser script
-        run: node --check public/app.js
+        run: make build
+      - name: Verify generated enforcement artifacts
+        run: make nodeagent-check-generated
+      - name: Enforce GoSX-only product UI
+        run: test -z "$(find . -path './.git' -prune -o -name '*.js' -print)"
+      - uses: azure/setup-helm@v4
+      - name: Validate Helm deployment
+        run: make helm-check helm-manifest-check
+      - name: GoSX browser end-to-end
+        run: make browser-e2e
+
+  deployment-shape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: helm/kind-action@v1
+      - name: Install and inspect class-isolated deployment
+        run: ./scripts/kind-smoke.sh

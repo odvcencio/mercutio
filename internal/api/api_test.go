@@ -1,14 +1,113 @@
 package api
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"m31labs.dev/mercutio/internal/cell"
 	"m31labs.dev/mercutio/internal/transport"
 )
+
+func TestKernelTelemetryPersistsGzipBatchAndEvidenceGaps(t *testing.T) {
+	store := cell.NewStore()
+	handler := New(store, transport.NewCellHub(store))
+	now := time.Now().UTC()
+	post := func(sequence uint64, drops uint64) *httptest.ResponseRecorder {
+		payload := map[string]any{
+			"nodeID": "node-a", "batchSeq": sequence,
+			"clockSync": map[string]any{"nodeID": "node-a", "monotonicNs": int64(10_000), "realtimeNs": now.UnixNano()},
+			"events": []map[string]any{{
+				"cellID": "cell-demo", "nodeID": "node-a", "seq": sequence, "tsNs": uint64(10_000),
+				"kind": "exec", "verdict": "deny", "pid": 9, "program": "GateExec",
+				"path": "/usr/bin/curl", "actionDanger": map[string]string{"mode": "control", "scope": "process", "reversibility": "restart"},
+			}},
+			"drops": map[string]uint64{"ring": drops}, "sentAt": now,
+		}
+		var body bytes.Buffer
+		zw := gzip.NewWriter(&body)
+		if err := json.NewEncoder(zw).Encode(payload); err != nil {
+			t.Fatal(err)
+		}
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest("POST", "/api/internal/telemetry/kernel", &body)
+		request.Header.Set("Content-Encoding", "gzip")
+		response := httptest.NewRecorder()
+		handler.KernelTelemetry(response, request)
+		return response
+	}
+	if response := post(1, 0); response.Code != http.StatusAccepted {
+		t.Fatalf("first batch=%d %s", response.Code, response.Body.String())
+	}
+	if response := post(3, 4); response.Code != http.StatusAccepted || !strings.Contains(response.Body.String(), `"batchGap":true`) {
+		t.Fatalf("gap batch=%d %s", response.Code, response.Body.String())
+	}
+	snapshot, err := store.Snapshot("cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest := snapshot.Events[len(snapshot.Events)-1]
+	if latest.Kind != "kernel" || latest.BatchSeq != 3 || latest.Drops != 4 || latest.Verdict != "deny" || latest.Path != "/usr/bin/curl" || !latest.Authenticated {
+		t.Fatalf("kernel event not preserved: %+v", latest)
+	}
+	if !strings.Contains(latest.Detail, "batch-gap=true") {
+		t.Fatalf("batch gap not durable: %s", latest.Detail)
+	}
+	if replay := post(3, 0); replay.Code != http.StatusConflict {
+		t.Fatalf("replay status=%d %s", replay.Code, replay.Body.String())
+	}
+}
+
+func TestKernelAskCreatesOperatorApprovalAndNodeDecision(t *testing.T) {
+	store := cell.NewStore()
+	if _, err := store.MarkArmed("cell-demo", cell.ArmReceipt{NodeID: "node-a", Programs: []string{"GateExec"}, ManifestDigest: "sha256:manifest", ObjectDigest: "sha256:object", CgroupID: 77, Enforcement: "r1-bpf-lsm"}); err != nil {
+		t.Fatal(err)
+	}
+	handler := New(store, transport.NewCellHub(store))
+	now := time.Now().UTC()
+	payload := map[string]any{
+		"nodeID": "node-a", "batchSeq": 1,
+		"clockSync": map[string]any{"nodeID": "node-a", "monotonicNs": int64(100), "realtimeNs": now.UnixNano()},
+		"events":    []map[string]any{{"cellID": "cell-demo", "nodeID": "node-a", "cgroupID": uint64(77), "seq": 1, "tsNs": uint64(100), "kind": "exec", "verdict": "ask", "pid": 42, "program": "GateExec", "path": "/workspace/repo/tool"}},
+		"drops":     map[string]uint64{}, "sentAt": now,
+	}
+	var body bytes.Buffer
+	zipper := gzip.NewWriter(&body)
+	if err := json.NewEncoder(zipper).Encode(payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := zipper.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/internal/telemetry/kernel", &body)
+	request.Header.Set("Content-Encoding", "gzip")
+	response := httptest.NewRecorder()
+	handler.KernelTelemetry(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("telemetry=%d %s", response.Code, response.Body.String())
+	}
+	snapshot, _ := store.Snapshot("cell-demo")
+	if len(snapshot.ActionApprovals) != 1 || snapshot.ActionApprovals[0].Status != "pending" {
+		t.Fatalf("approvals=%+v", snapshot.ActionApprovals)
+	}
+	if _, err := store.DecideActionApproval("cell-demo", snapshot.ActionApprovals[0].ID, "operator", false); err != nil {
+		t.Fatal(err)
+	}
+	decisionRequest := httptest.NewRequest(http.MethodGet, "/api/internal/nodes/node-a/action-decisions", nil)
+	decisionResponse := httptest.NewRecorder()
+	handler.NodeActionDecisions(decisionResponse, decisionRequest)
+	if decisionResponse.Code != http.StatusOK || !strings.Contains(decisionResponse.Body.String(), `"status":"rejected"`) || !strings.Contains(decisionResponse.Body.String(), `"cgroupID":77`) {
+		t.Fatalf("decisions=%d %s", decisionResponse.Code, decisionResponse.Body.String())
+	}
+}
 
 func TestCreateAndEditAPI(t *testing.T) {
 	store := cell.NewStore()
@@ -33,5 +132,118 @@ func TestCreateAndEditAPI(t *testing.T) {
 	handler.Edit(editResponse, editRequest)
 	if editResponse.Code != 200 || !strings.Contains(editResponse.Body.String(), "updated") {
 		t.Fatalf("edit response = %d, body=%s", editResponse.Code, editResponse.Body.String())
+	}
+}
+
+func TestTier1ProxyInjectsCredentialOnlyAtExactHTTPSDestination(t *testing.T) {
+	var gotAuthorization, gotCookie string
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuthorization = r.Header.Get("Authorization")
+		gotCookie = r.Header.Get("Cookie")
+		w.Header().Set("Set-Cookie", "session=upstream")
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer upstream.Close()
+	store := cell.NewStore()
+	handler := New(store, transport.NewCellHub(store))
+	handler.proxyClient = upstream.Client()
+	writeCap, _ := store.MintSecretCapability("cell-demo", "operator", "secret:write")
+	if _, _, err := store.PutSecret("cell-demo", "GITHUB_TOKEN", "network-secret", "operator", writeCap); err != nil {
+		t.Fatal(err)
+	}
+	grantCap, _ := store.MintSecretCapability("cell-demo", "operator", "secret:grant")
+	configure := httptest.NewRequest("POST", "https://mercutio.test/api/cells/cell-demo/secret-proxies", strings.NewReader(`{"credential":"GITHUB_TOKEN","destination":"`+upstream.URL+`","actor":"operator","capability":"`+grantCap+`"}`))
+	configured := httptest.NewRecorder()
+	handler.ConfigureSecretProxy(configured, configure)
+	if configured.Code != 201 {
+		t.Fatalf("configure=%d %s", configured.Code, configured.Body.String())
+	}
+	var payload struct {
+		ProxyURL string `json:"proxyURL"`
+	}
+	if err := json.Unmarshal(configured.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	proxyURL, err := url.Parse(payload.ProxyURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyURL.Path += "/v1/resource"
+	request := httptest.NewRequest("GET", proxyURL.RequestURI(), nil)
+	request.Header.Set("Authorization", "Bearer attacker")
+	request.Header.Set("Cookie", "session=attacker")
+	response := httptest.NewRecorder()
+	handler.SecretProxy(response, request)
+	if response.Code != 200 || gotAuthorization != "Bearer network-secret" || gotCookie != "" || response.Header().Get("Set-Cookie") != "" {
+		t.Fatalf("response=%d auth=%q cookie=%q headers=%v", response.Code, gotAuthorization, gotCookie, response.Header())
+	}
+}
+
+func TestInternalEventAcceptsHorizonShape(t *testing.T) {
+	store := cell.NewStore()
+	hub := transport.NewCellHub(store)
+	handler := New(store, hub)
+	request := httptest.NewRequest("POST", "/api/internal/events", strings.NewReader(`{"cell_id":"cell-demo","capability":"file-events","output":"FileAccessEvent","id":"kernel-1","traceID":"trace-1"}`))
+	response := httptest.NewRecorder()
+	handler.InternalEvent(response, request)
+	if response.Code != 202 || !strings.Contains(response.Body.String(), "horizon.FileAccessEvent") || !strings.Contains(response.Body.String(), "trace-1") {
+		t.Fatalf("internal event response = %d, body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestSecretBrokerNeverRevealsValueToAgentCapability(t *testing.T) {
+	store := cell.NewStore()
+	hub := transport.NewCellHub(store)
+	handler := New(store, hub)
+	writeCap, err := store.MintSecretCapability("cell-demo", "operator", "secret:write")
+	if err != nil {
+		t.Fatal(err)
+	}
+	put := httptest.NewRequest("POST", "/api/cells/cell-demo/secrets", strings.NewReader(`{"name":"api-token","value":"secret-value","actor":"operator","capability":"`+writeCap+`"}`))
+	putResponse := httptest.NewRecorder()
+	handler.PutSecret(putResponse, put)
+	if putResponse.Code != 202 {
+		t.Fatalf("put secret status = %d, body=%s", putResponse.Code, putResponse.Body.String())
+	}
+	token, err := store.AttachToken("cell-demo")
+	if err != nil {
+		t.Fatalf("AttachToken: %v", err)
+	}
+	read := httptest.NewRequest("GET", "/api/cells/cell-demo/secrets/api-token", nil)
+	read.Header.Set("X-Mercutio-Capability", token)
+	readResponse := httptest.NewRecorder()
+	handler.GetSecret(readResponse, read)
+	if readResponse.Code != 403 || strings.Contains(readResponse.Body.String(), "secret-value") {
+		t.Fatalf("agent secret reveal response = %d, body=%s", readResponse.Code, readResponse.Body.String())
+	}
+	denied := httptest.NewRequest("GET", "/api/cells/cell-demo/secrets/api-token", nil)
+	deniedResponse := httptest.NewRecorder()
+	handler.GetSecret(deniedResponse, denied)
+	if deniedResponse.Code != 403 {
+		t.Fatalf("unauthorized secret status = %d", deniedResponse.Code)
+	}
+}
+
+func TestSecretRevealRequiresFreshOperatorCapabilityAndReceipts(t *testing.T) {
+	store := cell.NewStore()
+	handler := New(store, transport.NewCellHub(store))
+	writeCap, _ := store.MintSecretCapability("cell-demo", "operator", "secret:write")
+	put := httptest.NewRequest("POST", "/api/cells/cell-demo/secrets", strings.NewReader(`{"name":"API_TOKEN","value":"token-value-1234","actor":"operator","capability":"`+writeCap+`"}`))
+	putResponse := httptest.NewRecorder()
+	handler.PutSecret(putResponse, put)
+	if putResponse.Code != 202 {
+		t.Fatalf("put=%d %s", putResponse.Code, putResponse.Body.String())
+	}
+	readCap, _ := store.MintSecretCapability("cell-demo", "operator", "secret:read")
+	read := httptest.NewRequest("GET", "/api/cells/cell-demo/secrets/API_TOKEN?actor=operator", nil)
+	read.Header.Set("X-Mercutio-Capability", readCap)
+	response := httptest.NewRecorder()
+	handler.GetSecret(response, read)
+	if response.Code != 200 || !strings.Contains(response.Body.String(), "token-value-1234") || !strings.Contains(response.Body.String(), "secret:reveal") {
+		t.Fatalf("reveal=%d %s", response.Code, response.Body.String())
+	}
+	descriptors, _ := store.SecretDescriptors("cell-demo")
+	if len(descriptors) != 1 || strings.Contains(descriptors[0].Redacted, "token-value") {
+		t.Fatalf("descriptors=%+v", descriptors)
 	}
 }

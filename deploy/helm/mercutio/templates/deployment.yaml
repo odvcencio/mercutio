@@ -22,11 +22,19 @@ spec:
           type: RuntimeDefault
       containers:
         - name: mercutio
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: 9011
+            - name: internal-mtls
+              containerPort: {{ .Values.internalTLS.port }}
           env:
             - name: MERCUTIO_PORT
               value: "9011"
@@ -38,6 +46,60 @@ spec:
                   name: {{ .Values.operator.tokenSecret.name }}
                   key: {{ .Values.operator.tokenSecret.key }}
                   optional: true
+            - name: MERCUTIO_SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.operator.sessionSecret.name }}
+                  key: {{ .Values.operator.sessionSecret.key }}
+                  optional: true
+            - name: MERCUTIO_EVENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.operator.eventTokenSecret.name }}
+                  key: {{ .Values.operator.eventTokenSecret.key }}
+                  optional: true
+            - name: MERCUTIO_CAPABILITY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.operator.capabilitySecret.name }}
+                  key: {{ .Values.operator.capabilitySecret.key }}
+                  optional: false
+            - name: MERCUTIO_COMMITTER
+              value: {{ .Values.review.committer | quote }}
+            - name: MERCUTIO_SANDBOX_RUNTIME
+              value: {{ .Values.sandbox.runtime | quote }}
+            - name: MERCUTIO_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: MERCUTIO_STRICT_NAMESPACE
+              value: {{ .Values.cellNamespaces.strict | quote }}
+            - name: MERCUTIO_STANDARD_NAMESPACE
+              value: {{ .Values.cellNamespaces.standard | quote }}
+            - name: MERCUTIO_OPEN_NAMESPACE
+              value: {{ .Values.cellNamespaces.open | quote }}
+            - name: MERCUTIO_SANDBOX_TEMPLATE
+              value: {{ printf "%s-sandbox-template" (include "mercutio.fullname" .) | quote }}
+            - name: MERCUTIO_HUB_URL
+              value: "http://{{ include "mercutio.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}/gosx/hub/agent"
+            - name: MERCUTIO_EVIDENCE_PATH
+              value: /var/lib/mercutio/evidence.jsonl
+            - name: MERCUTIO_STATE_PATH
+              value: /var/lib/mercutio/state.json
+            - name: MERCUTIO_INTERNAL_TLS_ADDR
+              value: ":{{ .Values.internalTLS.port }}"
+            - name: MERCUTIO_INTERNAL_TLS_CERT
+              value: /etc/mercutio/internal-tls/tls.crt
+            - name: MERCUTIO_INTERNAL_TLS_KEY
+              value: /etc/mercutio/internal-tls/tls.key
+            - name: MERCUTIO_INTERNAL_TLS_CLIENT_CA
+              value: /etc/mercutio/internal-tls/ca.crt
+          volumeMounts:
+            - name: evidence
+              mountPath: /var/lib/mercutio
+            - name: scratch
+              mountPath: /tmp
+            - name: internal-tls
+              mountPath: /etc/mercutio/internal-tls
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /healthz
@@ -48,3 +110,14 @@ spec:
               port: http
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: evidence
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-evidence" (include "mercutio.fullname" .)) .Values.persistence.existingClaim }}
+        - name: scratch
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: internal-tls
+          secret:
+            secretName: {{ .Values.internalTLS.serverSecret }}
+            optional: false

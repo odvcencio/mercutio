@@ -1,7 +1,11 @@
 /bin/
 /dist/
 /tmp/
+/nodeagent/dist/
+/nodeagent/tmp-generated/
 .DS_Store
+.canopy/
+**/.canopy/
 
 # Local GoSX workspaces and optional sibling overrides.
 go.work

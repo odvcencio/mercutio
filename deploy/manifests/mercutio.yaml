@@ -1,0 +1,955 @@
+---
+# Source: mercutio/crds/mercutio.dev_cells.yaml
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: cells.mercutio.dev
+spec:
+  group: mercutio.dev
+  scope: Namespaced
+  names:
+    plural: cells
+    singular: cell
+    kind: Cell
+    shortNames: [mcell]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Profile
+          type: string
+          jsonPath: .spec.profile
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Armed
+          type: boolean
+          jsonPath: .status.armed
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [cellID, repoURL, profile]
+              properties:
+                cellID:
+                  type: string
+                  minLength: 1
+                repoURL:
+                  type: string
+                  minLength: 1
+                branch:
+                  type: string
+                  default: main
+                profile:
+                  type: string
+                  enum: [strict, standard, open]
+                profileDigest:
+                  type: string
+                podTemplateRef:
+                  type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [pending, running, stopped, failed]
+                podName:
+                  type: string
+                nodeName:
+                  type: string
+                armed:
+                  type: boolean
+                enforcement:
+                  type: string
+                observedGeneration:
+                  type: integer
+                  format: int64
+                lastTransitionTime:
+                  type: string
+                  format: date-time
+
+---
+# Source: mercutio/templates/cell-namespaces.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mercutio-cell-strict
+  labels:
+    mercutio.dev/cell-class: strict
+    app.kubernetes.io/managed-by: Helm
+---
+# Source: mercutio/templates/cell-namespaces.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mercutio-cell-standard
+  labels:
+    mercutio.dev/cell-class: standard
+    app.kubernetes.io/managed-by: Helm
+---
+# Source: mercutio/templates/cell-namespaces.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mercutio-cell-open
+  labels:
+    mercutio.dev/cell-class: open
+    app.kubernetes.io/managed-by: Helm
+---
+# Source: mercutio/templates/network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mercutio-mercutio-default-deny-all
+  namespace: mercutio-cell-strict
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Source: mercutio/templates/network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mercutio-mercutio-control-and-dns
+  namespace: mercutio-cell-strict
+spec:
+  podSelector:
+    matchLabels:
+      mercutio.dev/managed: "true"
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mercutio
+              app.kubernetes.io/instance: mercutio
+      ports:
+        - {protocol: TCP, port: 9011}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+# Source: mercutio/templates/network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mercutio-mercutio-default-deny-all
+  namespace: mercutio-cell-standard
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Source: mercutio/templates/network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mercutio-mercutio-control-and-dns
+  namespace: mercutio-cell-standard
+spec:
+  podSelector:
+    matchLabels:
+      mercutio.dev/managed: "true"
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mercutio
+              app.kubernetes.io/instance: mercutio
+      ports:
+        - {protocol: TCP, port: 9011}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock: {cidr: 0.0.0.0/0}
+      ports:
+        - {protocol: TCP, port: 443}
+---
+# Source: mercutio/templates/network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mercutio-mercutio-default-deny-all
+  namespace: mercutio-cell-open
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Source: mercutio/templates/network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mercutio-mercutio-control-and-dns
+  namespace: mercutio-cell-open
+spec:
+  podSelector:
+    matchLabels:
+      mercutio.dev/managed: "true"
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mercutio
+              app.kubernetes.io/instance: mercutio
+      ports:
+        - {protocol: TCP, port: 9011}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - {}
+---
+# Source: mercutio/templates/network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mercutio-mercutio-nodeagent-egress
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: nodeagent
+      app.kubernetes.io/instance: mercutio
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mercutio
+              app.kubernetes.io/instance: mercutio
+      ports:
+        - {protocol: TCP, port: 9443}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock: {cidr: "10.96.0.1/32"}
+      ports:
+        - {protocol: TCP, port: 443}
+---
+# Source: mercutio/templates/resource-quota.yaml
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: mercutio-mercutio-cells
+  namespace: mercutio-cell-strict
+  labels:
+    app.kubernetes.io/name: mercutio
+    app.kubernetes.io/instance: mercutio
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "0.1.0"
+spec:
+  hard:
+    pods: "20"
+    requests.cpu: "10"
+    limits.cpu: "10"
+    requests.memory: "20Gi"
+    limits.memory: "20Gi"
+---
+# Source: mercutio/templates/resource-quota.yaml
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: mercutio-mercutio-cells
+  namespace: mercutio-cell-standard
+  labels:
+    app.kubernetes.io/name: mercutio
+    app.kubernetes.io/instance: mercutio
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "0.1.0"
+spec:
+  hard:
+    pods: "20"
+    requests.cpu: "10"
+    limits.cpu: "10"
+    requests.memory: "20Gi"
+    limits.memory: "20Gi"
+---
+# Source: mercutio/templates/resource-quota.yaml
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: mercutio-mercutio-cells
+  namespace: mercutio-cell-open
+  labels:
+    app.kubernetes.io/name: mercutio
+    app.kubernetes.io/instance: mercutio
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "0.1.0"
+spec:
+  hard:
+    pods: "20"
+    requests.cpu: "10"
+    limits.cpu: "10"
+    requests.memory: "20Gi"
+    limits.memory: "20Gi"
+---
+# Source: mercutio/templates/nodeagent-daemonset.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mercutio-mercutio-nodeagent
+  labels:
+    app.kubernetes.io/name: mercutio
+    app.kubernetes.io/instance: mercutio
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "0.1.0"
+automountServiceAccountToken: false
+---
+# Source: mercutio/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mercutio-mercutio
+  labels:
+    app.kubernetes.io/name: mercutio
+    app.kubernetes.io/instance: mercutio
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "0.1.0"
+---
+# Source: mercutio/templates/sandbox-template.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mercutio-mercutio-sandbox-template
+  labels:
+    app.kubernetes.io/name: mercutio
+    app.kubernetes.io/instance: mercutio
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "0.1.0"
+data:
+  pod-template.yaml: |
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      labels:
+        mercutio.dev/managed: "true"
+        mercutio.dev/cell-id: "{{CELL_ID}}"
+        mercutio.m31labs.dev/component: cell
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      activeDeadlineSeconds: 14400
+      hostNetwork: false
+      hostPID: false
+      hostIPC: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: materialize-graft-worktree
+          image: example.invalid/graft@sha256:1111111111111111111111111111111111111111111111111111111111111111
+          args: ["clone", "--branch", "{{BRANCH}}", "--no-modules", "{{REPO_URL}}", "/workspace/repo"]
+          securityContext: &restricted
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: scratch
+              mountPath: /tmp
+        - name: report-workspace-device
+          image: example.invalid/mercutio@sha256:1111111111111111111111111111111111111111111111111111111111111111
+          args: ["workspace-probe", "--cell", "{{CELL_ID}}", "--control", "http://mercutio-mercutio.default.svc:9011", "--workspace", "/workspace/repo"]
+          securityContext: *restricted
+          env:
+            - name: MERCUTIO_ARM_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ARM_SECRET_REF}}"
+                  key: token
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: scratch
+              mountPath: /tmp
+        - name: armgate
+          image: example.invalid/mercutio@sha256:1111111111111111111111111111111111111111111111111111111111111111
+          args: ["armgate", "--cell", "{{CELL_ID}}", "--control", "http://mercutio-mercutio.default.svc:9011", "--output", "/run/mercutio/armed"]
+          securityContext: *restricted
+          env:
+            - name: MERCUTIO_ARM_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ARM_SECRET_REF}}"
+                  key: token
+          volumeMounts:
+            - name: runtime
+              mountPath: /run/mercutio
+            - name: scratch
+              mountPath: /tmp
+      containers:
+        - name: agent
+          image: example.invalid/agent@sha256:1111111111111111111111111111111111111111111111111111111111111111
+          securityContext: *restricted
+          workingDir: /workspace/repo
+          env:
+            - name: MERCUTIO_CELL_ID
+              value: "{{CELL_ID}}"
+            - name: MERCUTIO_ATTACH_SOCKET
+              value: /run/mercutio/attach.sock
+            - name: MERCUTIO_SANDBOX_PROFILE
+              value: "{{PROFILE}}"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: runtime
+              mountPath: /run/mercutio
+            - name: scratch
+              mountPath: /tmp
+        - name: attach
+          image: example.invalid/mercutio@sha256:1111111111111111111111111111111111111111111111111111111111111111
+          args: ["attach", "--cell", "{{CELL_ID}}", "--hub", "{{HUB_URL}}", "--socket", "/run/mercutio/attach.sock", "--worktree", "/workspace/repo"]
+          securityContext: *restricted
+          env:
+            - name: MERCUTIO_ATTACH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ATTACH_SECRET_REF}}"
+                  key: token
+          resources:
+            requests:
+              cpu: 10m
+              memory: 24Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: runtime
+              mountPath: /run/mercutio
+            - name: scratch
+              mountPath: /tmp
+      volumes:
+        - name: workspace
+          emptyDir:
+            medium: Memory
+            sizeLimit: "2Gi"
+        - name: runtime
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+        - name: scratch
+          emptyDir:
+            sizeLimit: 256Mi
+---
+# Source: mercutio/templates/evidence-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mercutio-mercutio-evidence
+  labels:
+    app.kubernetes.io/name: mercutio
+    app.kubernetes.io/instance: mercutio
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "0.1.0"
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+# Source: mercutio/templates/nodeagent-daemonset.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mercutio-mercutio-nodeagent
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+# Source: mercutio/templates/nodeagent-daemonset.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mercutio-mercutio-nodeagent
+subjects:
+  - kind: ServiceAccount
+    name: mercutio-mercutio-nodeagent
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: mercutio-mercutio-nodeagent
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: mercutio/templates/sandbox-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mercutio-mercutio-sandbox-reconciler
+  labels:
+    app.kubernetes.io/name: mercutio
+    app.kubernetes.io/instance: mercutio
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "0.1.0"
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]
+---
+# Source: mercutio/templates/sandbox-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mercutio-mercutio-sandbox-reconciler
+  namespace: mercutio-cell-strict
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "delete"]
+  - apiGroups: ["mercutio.dev"]
+    resources: ["cells", "cells/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+# Source: mercutio/templates/sandbox-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mercutio-mercutio-sandbox-reconciler
+  namespace: mercutio-cell-standard
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "delete"]
+  - apiGroups: ["mercutio.dev"]
+    resources: ["cells", "cells/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+# Source: mercutio/templates/sandbox-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mercutio-mercutio-sandbox-reconciler
+  namespace: mercutio-cell-open
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "delete"]
+  - apiGroups: ["mercutio.dev"]
+    resources: ["cells", "cells/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+# Source: mercutio/templates/sandbox-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mercutio-mercutio-sandbox-reconciler
+  labels:
+    app.kubernetes.io/name: mercutio
+    app.kubernetes.io/instance: mercutio
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "0.1.0"
+subjects:
+  - kind: ServiceAccount
+    name: mercutio-mercutio
+roleRef:
+  kind: Role
+  name: mercutio-mercutio-sandbox-reconciler
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: mercutio/templates/sandbox-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mercutio-mercutio-sandbox-reconciler
+  namespace: mercutio-cell-strict
+subjects:
+  - kind: ServiceAccount
+    name: mercutio-mercutio
+    namespace: default
+roleRef:
+  kind: Role
+  name: mercutio-mercutio-sandbox-reconciler
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: mercutio/templates/sandbox-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mercutio-mercutio-sandbox-reconciler
+  namespace: mercutio-cell-standard
+subjects:
+  - kind: ServiceAccount
+    name: mercutio-mercutio
+    namespace: default
+roleRef:
+  kind: Role
+  name: mercutio-mercutio-sandbox-reconciler
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: mercutio/templates/sandbox-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mercutio-mercutio-sandbox-reconciler
+  namespace: mercutio-cell-open
+subjects:
+  - kind: ServiceAccount
+    name: mercutio-mercutio
+    namespace: default
+roleRef:
+  kind: Role
+  name: mercutio-mercutio-sandbox-reconciler
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: mercutio/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mercutio-mercutio
+  labels:
+    app.kubernetes.io/name: mercutio
+    app.kubernetes.io/instance: mercutio
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "0.1.0"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: mercutio
+    app.kubernetes.io/instance: mercutio
+  ports:
+    - name: http
+      port: 9011
+      targetPort: http
+    - name: internal-mtls
+      port: 9443
+      targetPort: internal-mtls
+---
+# Source: mercutio/templates/nodeagent-daemonset.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: mercutio-mercutio-nodeagent
+  labels:
+    app.kubernetes.io/name: mercutio
+    app.kubernetes.io/instance: mercutio
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "0.1.0"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mercutio-nodeagent
+      app.kubernetes.io/instance: mercutio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mercutio-nodeagent
+        app.kubernetes.io/instance: mercutio
+        app.kubernetes.io/component: nodeagent
+    spec:
+      serviceAccountName: mercutio-mercutio-nodeagent
+      automountServiceAccountToken: false
+      hostPID: false
+      hostNetwork: false
+      hostIPC: false
+      containers:
+        - name: nodeagent
+          image: "ghcr.io/odvcencio/mercutio-nodeagent@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 0
+            capabilities:
+              drop: [ALL]
+              add: [BPF, PERFMON, NET_ADMIN, SYS_RESOURCE]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: MERCUTIO_CONTROL_URL
+              value: "https://mercutio-mercutio.default.svc:9443"
+            - name: MERCUTIO_EVENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mercutio-event-token
+                  key: token
+                  optional: false
+            - name: MERCUTIO_HORIZON_MANIFEST
+              value: "/usr/share/mercutio/programs/mercutio.cap.json"
+            - name: MERCUTIO_HORIZON_OBJECT
+              value: "/usr/share/mercutio/programs/mercutio.bpf.o"
+            - name: MERCUTIO_HORIZON_PINS
+              value: /etc/mercutio/trust/pins.json
+            - name: MERCUTIO_HORIZON_PUBLIC_KEYS
+              value: /etc/mercutio/trust/public-keys.json
+            - name: MERCUTIO_MTLS_CERT
+              value: /etc/mercutio/mtls/tls.crt
+            - name: MERCUTIO_MTLS_KEY
+              value: /etc/mercutio/mtls/tls.key
+            - name: MERCUTIO_MTLS_CA
+              value: /etc/mercutio/mtls/ca.crt
+            - name: MERCUTIO_BASE_EGRESS
+              value: "mercutio-mercutio.default.svc:9443,kube-dns.kube-system.svc.cluster.local:53"
+          ports:
+            - name: health
+              containerPort: 9090
+          readinessProbe:
+            httpGet: {path: /readyz, port: health}
+          livenessProbe:
+            httpGet: {path: /healthz, port: health}
+          volumeMounts:
+            - name: bpf
+              mountPath: /sys/fs/bpf
+            - name: cgroup
+              mountPath: /sys/fs/cgroup
+              readOnly: true
+            - name: tracefs
+              mountPath: /sys/kernel/tracing
+              readOnly: true
+            - name: trust
+              mountPath: /etc/mercutio/trust
+              readOnly: true
+            - name: mtls
+              mountPath: /etc/mercutio/mtls
+              readOnly: true
+            - name: kube-api-access
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+            - name: scratch
+              mountPath: /tmp
+      volumes:
+        - name: bpf
+          hostPath:
+            path: /sys/fs/bpf
+            type: Directory
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+        - name: tracefs
+          hostPath:
+            path: /sys/kernel/tracing
+            type: Directory
+        - name: trust
+          secret:
+            secretName: mercutio-horizon-trust
+            optional: false
+        - name: mtls
+          secret:
+            secretName: mercutio-nodeagent-client-tls
+            optional: false
+        - name: kube-api-access
+          projected:
+            defaultMode: 420
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        fieldPath: metadata.namespace
+        - name: scratch
+          emptyDir:
+            sizeLimit: 64Mi
+---
+# Source: mercutio/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mercutio-mercutio
+  labels:
+    app.kubernetes.io/name: mercutio
+    app.kubernetes.io/instance: mercutio
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/version: "0.1.0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mercutio
+      app.kubernetes.io/instance: mercutio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mercutio
+        app.kubernetes.io/instance: mercutio
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/version: "0.1.0"
+    spec:
+      serviceAccountName: mercutio-mercutio
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mercutio
+          image: "ghcr.io/odvcencio/mercutio@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 9011
+            - name: internal-mtls
+              containerPort: 9443
+          env:
+            - name: MERCUTIO_PORT
+              value: "9011"
+            - name: MERCUTIO_DEV_MODE
+              value: "0"
+            - name: MERCUTIO_OPERATOR_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mercutio-operator-token
+                  key: token
+                  optional: true
+            - name: MERCUTIO_SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: mercutio-session-secret
+                  key: secret
+                  optional: true
+            - name: MERCUTIO_EVENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mercutio-event-token
+                  key: token
+                  optional: true
+            - name: MERCUTIO_CAPABILITY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: mercutio-capability-secret
+                  key: secret
+                  optional: false
+            - name: MERCUTIO_COMMITTER
+              value: "agent"
+            - name: MERCUTIO_SANDBOX_RUNTIME
+              value: "kubernetes"
+            - name: MERCUTIO_NAMESPACE
+              value: "default"
+            - name: MERCUTIO_STRICT_NAMESPACE
+              value: "mercutio-cell-strict"
+            - name: MERCUTIO_STANDARD_NAMESPACE
+              value: "mercutio-cell-standard"
+            - name: MERCUTIO_OPEN_NAMESPACE
+              value: "mercutio-cell-open"
+            - name: MERCUTIO_SANDBOX_TEMPLATE
+              value: "mercutio-mercutio-sandbox-template"
+            - name: MERCUTIO_HUB_URL
+              value: "http://mercutio-mercutio.default.svc:9011/gosx/hub/agent"
+            - name: MERCUTIO_EVIDENCE_PATH
+              value: /var/lib/mercutio/evidence.jsonl
+            - name: MERCUTIO_STATE_PATH
+              value: /var/lib/mercutio/state.json
+            - name: MERCUTIO_INTERNAL_TLS_ADDR
+              value: ":9443"
+            - name: MERCUTIO_INTERNAL_TLS_CERT
+              value: /etc/mercutio/internal-tls/tls.crt
+            - name: MERCUTIO_INTERNAL_TLS_KEY
+              value: /etc/mercutio/internal-tls/tls.key
+            - name: MERCUTIO_INTERNAL_TLS_CLIENT_CA
+              value: /etc/mercutio/internal-tls/ca.crt
+          volumeMounts:
+            - name: evidence
+              mountPath: /var/lib/mercutio
+            - name: scratch
+              mountPath: /tmp
+            - name: internal-tls
+              mountPath: /etc/mercutio/internal-tls
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            limits:
+              cpu: 1
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+      volumes:
+        - name: evidence
+          persistentVolumeClaim:
+            claimName: mercutio-mercutio-evidence
+        - name: scratch
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: internal-tls
+          secret:
+            secretName: mercutio-internal-server-tls
+            optional: false

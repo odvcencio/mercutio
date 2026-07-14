@@ -1,0 +1,26 @@
+name: Kernel integration
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bpf-lsm:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [kernel-5-15, kernel-6-8, kernel-current]
+    runs-on: [self-hosted, linux, mercutio-ebpf, "${{ matrix.target }}"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: nodeagent/go.mod
+          cache: true
+      - name: Load, attach, and prove strict denial
+        run: sudo --preserve-env=PATH,HOME,GOCACHE,GOMODCACHE ./scripts/kernel-integration.sh

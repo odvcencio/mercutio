@@ -1,0 +1,17 @@
+[project]
+name = "mercutio-cell-open"
+[policy]
+bundle = "open.arb"
+[subject]
+default_kind = "agent"
+default_mode = "ask"
+[capabilities]
+horizon_manifest_dir = "/usr/share/mercutio/programs"
+manifest_signature_mode = "require"
+manifest_digest_pins = "/etc/mercutio/trust/pins.json"
+[enforcement]
+network = "observe"
+file = "observe"
+process = "observe"
+[approval]
+kind = "hub"

@@ -1,0 +1,400 @@
+{
+  "schema": "m31labs.dev/mercutio/eps/v1",
+  "profile": "strict",
+  "sourceDigest": "sha256:67c124b0a0c6b0486ff9e2f115ff4eb80326b27df8c6879c2c2b1176ee65f887",
+  "horizonDigest": "sha256:d95ce8c834caa43fdeaf806258a12cfda029012b6c5003b4e87077005d3e87b2",
+  "profileDigest": "sha256:197c5eb7564d01fb739acadcbc5db5b9188943516b6f1f394934dff6f4c3a391",
+  "filesystem": [
+    {
+      "domain": "cache",
+      "targets": [
+        "/home/agent/.cache/",
+        "/home/agent/go/pkg/mod/",
+        "/workspace/repo/node_modules/"
+      ],
+      "ops": [
+        "read"
+      ],
+      "verdict": "allow",
+      "rule": "AllowReadonlyFiles"
+    },
+    {
+      "domain": "cache",
+      "targets": [
+        "/home/agent/.cache/",
+        "/home/agent/go/pkg/mod/",
+        "/workspace/repo/node_modules/"
+      ],
+      "ops": [
+        "write"
+      ],
+      "verdict": "deny",
+      "rule": "DenyOtherFiles"
+    },
+    {
+      "domain": "ci",
+      "targets": [
+        "/workspace/repo/.github/",
+        "/workspace/repo/.git",
+        "/workspace/repo/.graft/",
+        "/workspace/repo/Makefile"
+      ],
+      "ops": [
+        "read"
+      ],
+      "verdict": "allow",
+      "rule": "AllowCIRead"
+    },
+    {
+      "domain": "ci",
+      "targets": [
+        "/workspace/repo/.github/",
+        "/workspace/repo/.git",
+        "/workspace/repo/.graft/",
+        "/workspace/repo/Makefile"
+      ],
+      "ops": [
+        "write"
+      ],
+      "verdict": "ask",
+      "rule": "AskCIWrite"
+    },
+    {
+      "domain": "other",
+      "targets": [
+        "*"
+      ],
+      "ops": [
+        "read"
+      ],
+      "verdict": "deny",
+      "rule": "DenyOtherReads"
+    },
+    {
+      "domain": "other",
+      "targets": [
+        "*"
+      ],
+      "ops": [
+        "write"
+      ],
+      "verdict": "deny",
+      "rule": "DenyOtherFiles"
+    },
+    {
+      "domain": "proc-other",
+      "targets": [
+        "/proc/*/environ"
+      ],
+      "ops": [
+        "read"
+      ],
+      "verdict": "deny",
+      "rule": "DenySensitive"
+    },
+    {
+      "domain": "proc-other",
+      "targets": [
+        "/proc/*/environ"
+      ],
+      "ops": [
+        "write"
+      ],
+      "verdict": "deny",
+      "rule": "DenySensitive"
+    },
+    {
+      "domain": "sensitive",
+      "targets": [
+        "/home/agent/.ssh/",
+        "/home/agent/.aws/",
+        "/home/agent/.kube/",
+        "/home/agent/.docker/",
+        "/var/run/secrets/"
+      ],
+      "ops": [
+        "read"
+      ],
+      "verdict": "deny",
+      "rule": "DenySensitive"
+    },
+    {
+      "domain": "sensitive",
+      "targets": [
+        "/home/agent/.ssh/",
+        "/home/agent/.aws/",
+        "/home/agent/.kube/",
+        "/home/agent/.docker/",
+        "/var/run/secrets/"
+      ],
+      "ops": [
+        "write"
+      ],
+      "verdict": "deny",
+      "rule": "DenySensitive"
+    },
+    {
+      "domain": "system",
+      "targets": [
+        "/usr/",
+        "/lib/",
+        "/etc/"
+      ],
+      "ops": [
+        "read"
+      ],
+      "verdict": "allow",
+      "rule": "AllowReadonlyFiles"
+    },
+    {
+      "domain": "system",
+      "targets": [
+        "/usr/",
+        "/lib/",
+        "/etc/"
+      ],
+      "ops": [
+        "write"
+      ],
+      "verdict": "deny",
+      "rule": "DenyOtherFiles"
+    },
+    {
+      "domain": "tmp",
+      "targets": [
+        "/tmp/",
+        "/ipc/"
+      ],
+      "ops": [
+        "read"
+      ],
+      "verdict": "allow",
+      "rule": "AllowWorkFiles"
+    },
+    {
+      "domain": "tmp",
+      "targets": [
+        "/tmp/",
+        "/ipc/"
+      ],
+      "ops": [
+        "write"
+      ],
+      "verdict": "allow",
+      "rule": "AllowWorkFiles"
+    },
+    {
+      "domain": "worktree",
+      "targets": [
+        "/workspace/repo/"
+      ],
+      "ops": [
+        "read"
+      ],
+      "verdict": "allow",
+      "rule": "AllowWorkFiles"
+    },
+    {
+      "domain": "worktree",
+      "targets": [
+        "/workspace/repo/"
+      ],
+      "ops": [
+        "write"
+      ],
+      "verdict": "allow",
+      "rule": "AllowWorkFiles"
+    }
+  ],
+  "exec": [
+    {
+      "domain": "coreutils",
+      "targets": [
+        "coreutils"
+      ],
+      "verdict": "allow",
+      "rule": "AllowStrictExec"
+    },
+    {
+      "domain": "inline",
+      "targets": [
+        "python3 -c",
+        "node -e",
+        "sh -c"
+      ],
+      "verdict": "deny",
+      "rule": "DenyStrictExec"
+    },
+    {
+      "domain": "network-tool",
+      "targets": [
+        "curl",
+        "wget",
+        "nc",
+        "ssh",
+        "scp"
+      ],
+      "verdict": "deny",
+      "rule": "DenyStrictExec"
+    },
+    {
+      "domain": "package-manager",
+      "targets": [
+        "npm",
+        "pip",
+        "cargo",
+        "go"
+      ],
+      "verdict": "deny",
+      "rule": "DenyStrictExec"
+    },
+    {
+      "domain": "privilege",
+      "targets": [
+        "sudo",
+        "su",
+        "mount",
+        "insmod",
+        "setcap"
+      ],
+      "verdict": "deny",
+      "rule": "DenyStrictExec"
+    },
+    {
+      "domain": "shell",
+      "targets": [
+        "sh",
+        "bash",
+        "zsh"
+      ],
+      "verdict": "deny",
+      "rule": "DenyStrictExec"
+    },
+    {
+      "domain": "toolchain",
+      "targets": [
+        "go",
+        "node",
+        "python3",
+        "cargo",
+        "test-runners"
+      ],
+      "verdict": "allow",
+      "rule": "AllowStrictExec"
+    },
+    {
+      "domain": "vcs",
+      "targets": [
+        "graft",
+        "buckley",
+        "git"
+      ],
+      "verdict": "allow",
+      "rule": "AllowStrictExec"
+    },
+    {
+      "domain": "worktree-binary",
+      "targets": [
+        "/workspace/repo/*"
+      ],
+      "verdict": "deny",
+      "rule": "DenyStrictExec"
+    }
+  ],
+  "network": [
+    {
+      "domain": "cell",
+      "targets": [
+        "cell-network:*"
+      ],
+      "verdict": "deny",
+      "rule": "DenyStrictNet"
+    },
+    {
+      "domain": "control-plane",
+      "targets": [
+        "mercutio-control-plane"
+      ],
+      "verdict": "allow",
+      "rule": "AllowStrictNet"
+    },
+    {
+      "domain": "dependency",
+      "targets": [
+        "github.com:443",
+        "proxy.golang.org:443",
+        "registry.npmjs.org:443",
+        "pypi.org:443",
+        "crates.io:443"
+      ],
+      "verdict": "deny",
+      "rule": "DenyStrictNet"
+    },
+    {
+      "domain": "dns",
+      "targets": [
+        "cluster-dns:53"
+      ],
+      "verdict": "allow",
+      "rule": "AllowStrictNet"
+    },
+    {
+      "domain": "kubernetes",
+      "targets": [
+        "kubernetes.default.svc:443"
+      ],
+      "verdict": "deny",
+      "rule": "DenyStrictNet"
+    },
+    {
+      "domain": "metadata",
+      "targets": [
+        "169.254.169.254:*"
+      ],
+      "verdict": "deny",
+      "rule": "DenyStrictNet"
+    },
+    {
+      "domain": "private",
+      "targets": [
+        "rfc1918:*"
+      ],
+      "verdict": "deny",
+      "rule": "DenyStrictNet"
+    },
+    {
+      "domain": "public",
+      "targets": [
+        "public:*"
+      ],
+      "verdict": "deny",
+      "rule": "DenyStrictNet"
+    },
+    {
+      "domain": "registry-mirror",
+      "targets": [
+        "registry-mirror"
+      ],
+      "verdict": "allow",
+      "rule": "AllowStrictNet"
+    }
+  ],
+  "programs": [
+    "OnExec",
+    "GateExec",
+    "GateFileOpen",
+    "GateConnect4",
+    "GateConnect6"
+  ],
+  "actionDangerCeiling": {
+    "mode": "mutate",
+    "scope": "filesystem",
+    "reversibility": "restart"
+  },
+  "programDangerCeiling": {
+    "mode": "control",
+    "scope": "system",
+    "reversibility": "restart"
+  },
+  "recordedOnly": false
+}

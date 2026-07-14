@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "image": {
+      "type": "object",
+      "properties": {
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "not": {"const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+        }
+      },
+      "required": ["digest"]
+    },
+    "sandbox": {
+      "type": "object",
+      "properties": {
+        "agentImage": {"type": "string", "pattern": "^.+@sha256:[0-9a-f]{64}$", "not": {"const": "ghcr.io/odvcencio/mercutio-agent@sha256:0000000000000000000000000000000000000000000000000000000000000000"}},
+        "attachImage": {"type": "string", "pattern": "^.+@sha256:[0-9a-f]{64}$", "not": {"const": "ghcr.io/odvcencio/mercutio@sha256:0000000000000000000000000000000000000000000000000000000000000000"}},
+        "graftImage": {"type": "string", "pattern": "^.+@sha256:[0-9a-f]{64}$", "not": {"const": "ghcr.io/odvcencio/graft@sha256:0000000000000000000000000000000000000000000000000000000000000000"}},
+        "armgateImage": {"type": "string", "pattern": "^.+@sha256:[0-9a-f]{64}$", "not": {"const": "ghcr.io/odvcencio/mercutio@sha256:0000000000000000000000000000000000000000000000000000000000000000"}}
+        ,"workspaceSizeLimit": {"type": "string", "minLength": 1}
+      },
+      "required": ["agentImage", "attachImage", "graftImage", "armgateImage"]
+    },
+    "nodeAgent": {
+      "type": "object",
+      "properties": {
+        "image": {
+          "type": "object",
+          "properties": {
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "not": {"const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+            }
+          },
+          "required": ["digest"]
+        }
+      },
+      "required": ["image"]
+    }
+  },
+  "required": ["image", "sandbox", "nodeAgent"]
+}

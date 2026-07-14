@@ -13,3 +13,6 @@ spec:
     - name: http
       port: {{ .Values.service.port }}
       targetPort: http
+    - name: internal-mtls
+      port: {{ .Values.internalTLS.port }}
+      targetPort: internal-mtls

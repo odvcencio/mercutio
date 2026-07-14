@@ -1,0 +1,409 @@
+package mercutio
+
+import bpf "m31labs.dev/horizon/runtime/kernel"
+
+const EventBytes u32 = 16777216
+
+type CellScopeVal struct {
+    cell_lo u64
+    cell_hi u64
+    class u32
+    fs_dev u64
+}
+
+type NetKey struct {
+    cgroup_id u64
+    dst_ip4 u32
+    dst_port u16
+    protocol u16
+}
+
+type Net6Key struct {
+    cgroup_id u64
+    dst_ip6_0 u32
+    dst_ip6_1 u32
+    dst_ip6_2 u32
+    dst_ip6_3 u32
+    dst_port u16
+    protocol u16
+}
+
+type EventHeader struct {
+    ts_ns u64
+    cell_lo u64
+    cell_hi u64
+    cgroup_id u64
+    pid u32
+    ppid u32
+    tgid u32
+    uid u32
+    seq u64
+    kind u32
+    verdict u32
+    comm [16]u8
+}
+
+type ExecEvent struct {
+    hdr EventHeader
+    filename [256]u8
+    argv_head [256]u8
+    argv_trunc u32
+    pad u32
+}
+
+type FileEvent struct {
+    hdr EventHeader
+    path [256]u8
+    path_trunc u32
+    flags u32
+    mode u32
+    op u32
+}
+
+type ConnectEvent struct {
+    hdr EventHeader
+    dst_ip4 u32
+    dst_ip6 [16]u8
+    dst_port u16
+    family u16
+    protocol u16
+    pad u16
+}
+
+type DropCount struct {
+    count u64
+}
+
+type ActionKey struct {
+    cgroup_id u64
+    pid u32
+    kind u32
+}
+
+@max_entries(4096)
+map CellScope hash[u64, CellScopeVal]
+
+@max_entries(32768)
+map NetAllow hash[NetKey, u8]
+
+@max_entries(32768)
+map Net6Allow hash[Net6Key, u8]
+
+@max_entries(64)
+map Drops percpu_hash[u32, DropCount]
+
+@max_entries(4096)
+map ActionGrant hash[ActionKey, u8]
+
+@max_entries(EventBytes)
+map ExecEvents ringbuf[ExecEvent]
+
+@max_entries(EventBytes)
+map FileEvents ringbuf[FileEvent]
+
+@max_entries(EventBytes)
+map ConnectEvents ringbuf[ConnectEvent]
+
+capability ExecObserve danger observe = "kernel.process.exec.observe"
+
+capability ExecBlock danger "control,process,restart" = "kernel.process.exec.block"
+
+capability FileBlock danger "control,filesystem,restart" = "kernel.file.open.block"
+
+capability ConnectBlock danger block = "kernel.network.connect.block"
+
+capability Connect6Block danger block = "kernel.network.connect6.block"
+
+func bump_drop(id u32) bool {
+    count := Drops.lookup(id)
+    if count == nil {
+        if Drops.update(id, DropCount{count: 1}) != 0 {
+            return false
+        }
+        return true
+    }
+    count.count = count.count + 1
+    return true
+}
+
+@capability(ExecObserve)
+@tracepoint("sched:sched_process_exec")
+func OnExec(ctx tracepoint.Exec) i32 {
+    cgroup_id := bpf.current_cgroup_id()
+    scope := CellScope.lookup(cgroup_id)
+    if scope == nil {
+        return 0
+    }
+    event := ExecEvents.reserve()
+    if event == nil {
+        bump_drop(1)
+        return 0
+    }
+    event.hdr.ts_ns = bpf.ktime_get_ns()
+    event.hdr.cell_lo = scope.cell_lo
+    event.hdr.cell_hi = scope.cell_hi
+    event.hdr.cgroup_id = cgroup_id
+    event.hdr.pid = bpf.current_pid()
+    event.hdr.ppid = bpf.current_ppid()
+    event.hdr.tgid = event.hdr.pid
+    event.hdr.uid = bpf.current_uid()
+    event.hdr.kind = 1
+    event.hdr.verdict = 0
+    bpf.current_comm(&event.hdr.comm)
+    argv_len := bpf.current_argv(&event.argv_head)
+    if argv_len < 0 || argv_len >= 256 {
+        event.argv_trunc = 1
+    }
+    ExecEvents.submit(event)
+    return 0
+}
+
+@capability(ExecBlock)
+@lsm("bprm_check_security")
+func GateExec(ctx lsm.Context) i32 {
+    cgroup_id := bpf.current_cgroup_id()
+    scope := CellScope.lookup(cgroup_id)
+    if scope == nil {
+        return lsm.Allow
+    }
+    event := ExecEvents.reserve()
+    if event == nil {
+        bump_drop(1)
+        if scope.class == 2 {
+            return lsm.Allow
+        }
+        return lsm.Deny
+    }
+    verdict := u32(0)
+    filename_valid := true
+    if lsm.bprm_filename(ctx, &event.filename) < 0 {
+        filename_valid = false
+        event.argv_trunc = 1
+        if scope.class != 2 {
+            verdict = 1
+        }
+    }
+    if filename_valid && (lsm.path_has_prefix(&event.filename, "/usr/bin/sudo") || lsm.path_has_prefix(&event.filename, "/usr/bin/su") || lsm.path_has_prefix(&event.filename, "/bin/su") || lsm.path_has_prefix(&event.filename, "/usr/bin/mount") || lsm.path_has_prefix(&event.filename, "/bin/mount") || lsm.path_has_prefix(&event.filename, "/usr/bin/insmod") || lsm.path_has_prefix(&event.filename, "/usr/sbin/insmod") || lsm.path_has_prefix(&event.filename, "/usr/bin/setcap") || lsm.path_has_prefix(&event.filename, "/usr/sbin/setcap")) {
+        verdict = 1
+    }
+    if filename_valid && scope.class == 0 && (lsm.path_has_prefix(&event.filename, "/bin/sh") || lsm.path_has_prefix(&event.filename, "/bin/bash") || lsm.path_has_prefix(&event.filename, "/usr/bin/bash") || lsm.path_has_prefix(&event.filename, "/usr/bin/zsh")) {
+        verdict = 1
+    }
+    if filename_valid && scope.class == 0 {
+        strict_allowed := lsm.path_has_prefix(&event.filename, "/usr/local/go/bin/") || lsm.path_has_prefix(&event.filename, "/usr/bin/go") || lsm.path_has_prefix(&event.filename, "/usr/bin/node") || lsm.path_has_prefix(&event.filename, "/usr/bin/python3") || lsm.path_has_prefix(&event.filename, "/usr/bin/cargo") || lsm.path_has_prefix(&event.filename, "/usr/bin/git") || lsm.path_has_prefix(&event.filename, "/usr/bin/graft") || lsm.path_has_prefix(&event.filename, "/usr/bin/buckley") || lsm.path_has_prefix(&event.filename, "/usr/local/bin/graft") || lsm.path_has_prefix(&event.filename, "/usr/local/bin/buckley") || lsm.path_has_prefix(&event.filename, "/bin/cat") || lsm.path_has_prefix(&event.filename, "/bin/cp") || lsm.path_has_prefix(&event.filename, "/bin/cut") || lsm.path_has_prefix(&event.filename, "/bin/date") || lsm.path_has_prefix(&event.filename, "/bin/echo") || lsm.path_has_prefix(&event.filename, "/bin/env") || lsm.path_has_prefix(&event.filename, "/bin/find") || lsm.path_has_prefix(&event.filename, "/bin/grep") || lsm.path_has_prefix(&event.filename, "/bin/head") || lsm.path_has_prefix(&event.filename, "/bin/ls") || lsm.path_has_prefix(&event.filename, "/bin/mkdir") || lsm.path_has_prefix(&event.filename, "/bin/mv") || lsm.path_has_prefix(&event.filename, "/bin/pwd") || lsm.path_has_prefix(&event.filename, "/bin/rm") || lsm.path_has_prefix(&event.filename, "/bin/sed") || lsm.path_has_prefix(&event.filename, "/bin/sort") || lsm.path_has_prefix(&event.filename, "/bin/tail") || lsm.path_has_prefix(&event.filename, "/bin/tar") || lsm.path_has_prefix(&event.filename, "/bin/touch") || lsm.path_has_prefix(&event.filename, "/bin/tr") || lsm.path_has_prefix(&event.filename, "/bin/uniq") || lsm.path_has_prefix(&event.filename, "/bin/wc") || lsm.path_has_prefix(&event.filename, "/usr/bin/cat") || lsm.path_has_prefix(&event.filename, "/usr/bin/cp") || lsm.path_has_prefix(&event.filename, "/usr/bin/env") || lsm.path_has_prefix(&event.filename, "/usr/bin/find") || lsm.path_has_prefix(&event.filename, "/usr/bin/grep") || lsm.path_has_prefix(&event.filename, "/usr/bin/ls") || lsm.path_has_prefix(&event.filename, "/usr/bin/mkdir") || lsm.path_has_prefix(&event.filename, "/usr/bin/rm") || lsm.path_has_prefix(&event.filename, "/usr/bin/sed") || lsm.path_has_prefix(&event.filename, "/usr/bin/tar")
+        if !strict_allowed {
+            verdict = 1
+        }
+    }
+    if filename_valid && scope.class == 1 && lsm.path_has_prefix(&event.filename, "/workspace/") {
+        verdict = 2
+    }
+    exec_grant := ActionGrant.lookup(ActionKey{cgroup_id: cgroup_id, pid: bpf.current_pid(), kind: 1})
+    if verdict == 2 && exec_grant != nil {
+        verdict = 3
+    }
+    event.hdr.ts_ns = bpf.ktime_get_ns()
+    event.hdr.cell_lo = scope.cell_lo
+    event.hdr.cell_hi = scope.cell_hi
+    event.hdr.cgroup_id = cgroup_id
+    event.hdr.pid = bpf.current_pid()
+    event.hdr.ppid = bpf.current_ppid()
+    event.hdr.tgid = event.hdr.pid
+    event.hdr.uid = bpf.current_uid()
+    event.hdr.kind = 1
+    event.hdr.verdict = verdict
+    bpf.current_comm(&event.hdr.comm)
+    ExecEvents.submit(event)
+    if verdict == 1 || verdict == 2 {
+        return lsm.Deny
+    }
+    return lsm.Allow
+}
+
+@capability(FileBlock)
+@lsm("file_open")
+func GateFileOpen(ctx lsm.Context) i32 {
+    cgroup_id := bpf.current_cgroup_id()
+    scope := CellScope.lookup(cgroup_id)
+    if scope == nil {
+        return lsm.Allow
+    }
+    event := FileEvents.reserve()
+    if event == nil {
+        bump_drop(2)
+        if scope.class == 2 {
+            return lsm.Allow
+        }
+        return lsm.Deny
+    }
+    event.flags = lsm.file_flags(ctx)
+    event.mode = lsm.file_mode(ctx)
+    file_dev := lsm.file_dev(ctx)
+    verdict := u32(0)
+    path_valid := true
+    if lsm.file_path(ctx, &event.path) < 0 {
+        path_valid = false
+        event.path_trunc = 1
+        if scope.class != 2 {
+            verdict = 1
+        }
+    }
+    if path_valid && (lsm.path_has_prefix(&event.path, "/root/.ssh/") || lsm.path_has_prefix(&event.path, "/root/.aws/") || lsm.path_has_prefix(&event.path, "/root/.kube/") || lsm.path_has_prefix(&event.path, "/root/.docker/") || lsm.path_has_prefix(&event.path, "/home/agent/.ssh/") || lsm.path_has_prefix(&event.path, "/home/agent/.aws/") || lsm.path_has_prefix(&event.path, "/home/agent/.kube/") || lsm.path_has_prefix(&event.path, "/home/agent/.docker/") || lsm.path_has_prefix(&event.path, "/home/nonroot/.ssh/") || lsm.path_has_prefix(&event.path, "/home/nonroot/.aws/") || lsm.path_has_prefix(&event.path, "/home/nonroot/.kube/") || lsm.path_has_prefix(&event.path, "/home/nonroot/.docker/") || lsm.path_has_prefix(&event.path, "/var/run/secrets/") || lsm.path_has_prefix(&event.path, "/proc/") && lsm.path_has_suffix(&event.path, "/environ")) {
+        verdict = 1
+    }
+    writing := event.flags & (lsm.FModeWrite | lsm.OCreat | lsm.OTrunc | lsm.OAppend)
+    if path_valid && writing != 0 && !lsm.path_has_prefix(&event.path, "/workspace/") && !lsm.path_has_prefix(&event.path, "/tmp/") && !lsm.path_has_prefix(&event.path, "/run/mercutio/") {
+        verdict = 1
+    }
+    if path_valid && scope.class != 2 && writing != 0 && lsm.path_has_prefix(&event.path, "/workspace/") && file_dev != scope.fs_dev {
+        verdict = 1
+    }
+    if path_valid && writing != 0 && (lsm.path_has_prefix(&event.path, "/workspace/repo/.github/") || lsm.path_has_prefix(&event.path, "/workspace/repo/.git/") || lsm.path_has_prefix(&event.path, "/workspace/repo/.graft/") || lsm.path_has_prefix(&event.path, "/workspace/repo/Makefile")) {
+        verdict = 2
+    }
+    file_grant := ActionGrant.lookup(ActionKey{cgroup_id: cgroup_id, pid: bpf.current_pid(), kind: 2})
+    if verdict == 2 && file_grant != nil {
+        verdict = 3
+    }
+    event.hdr.ts_ns = bpf.ktime_get_ns()
+    event.hdr.cell_lo = scope.cell_lo
+    event.hdr.cell_hi = scope.cell_hi
+    event.hdr.cgroup_id = cgroup_id
+    event.hdr.pid = bpf.current_pid()
+    event.hdr.ppid = bpf.current_ppid()
+    event.hdr.tgid = event.hdr.pid
+    event.hdr.uid = bpf.current_uid()
+    event.hdr.kind = 2
+    event.hdr.verdict = verdict
+    bpf.current_comm(&event.hdr.comm)
+    FileEvents.submit(event)
+    if verdict == 1 || verdict == 2 {
+        return lsm.Deny
+    }
+    return lsm.Allow
+}
+
+@capability(ConnectBlock)
+@cgroup("connect4")
+func GateConnect4(ctx cgroup.Connect) i32 {
+    cgroup_id := bpf.current_cgroup_id()
+    scope := CellScope.lookup(cgroup_id)
+    if scope == nil {
+        return cgroup.Allow
+    }
+    ip := cgroup.dst_ip4(ctx)
+    port := cgroup.dst_port(ctx)
+    protocol := cgroup.protocol(ctx)
+    verdict := u32(0)
+    if ip == cgroup.ip4(169, 254, 169, 254) {
+        verdict = 1
+    }
+    key := NetKey{cgroup_id: cgroup_id, dst_ip4: ip, dst_port: port, protocol: u16(protocol)}
+    allowed := NetAllow.lookup(key)
+    if allowed == nil {
+        private_net := (ip & cgroup.ip4(255, 0, 0, 0)) == cgroup.ip4(10, 0, 0, 0) || (ip & cgroup.ip4(255, 240, 0, 0)) == cgroup.ip4(172, 16, 0, 0) || (ip & cgroup.ip4(255, 255, 0, 0)) == cgroup.ip4(192, 168, 0, 0) || (ip & cgroup.ip4(255, 255, 0, 0)) == cgroup.ip4(169, 254, 0, 0)
+        if private_net {
+            verdict = 1
+        } else if scope.class == 1 {
+            verdict = 2
+        } else if scope.class == 0 {
+            verdict = 1
+        }
+    }
+    net_grant := ActionGrant.lookup(ActionKey{cgroup_id: cgroup_id, pid: bpf.current_pid(), kind: 3})
+    if verdict == 2 && net_grant != nil {
+        verdict = 3
+    }
+    event := ConnectEvents.reserve()
+    if event == nil {
+        bump_drop(3)
+        if verdict == 1 || verdict == 2 {
+            return cgroup.Deny
+        }
+        return cgroup.Allow
+    }
+    event.dst_ip4 = ip
+    event.dst_port = port
+    event.family = u16(cgroup.family(ctx))
+    event.protocol = u16(protocol)
+    event.hdr.ts_ns = bpf.ktime_get_ns()
+    event.hdr.cell_lo = scope.cell_lo
+    event.hdr.cell_hi = scope.cell_hi
+    event.hdr.cgroup_id = cgroup_id
+    event.hdr.pid = bpf.current_pid()
+    event.hdr.ppid = bpf.current_ppid()
+    event.hdr.tgid = event.hdr.pid
+    event.hdr.uid = bpf.current_uid()
+    event.hdr.kind = 3
+    event.hdr.verdict = verdict
+    bpf.current_comm(&event.hdr.comm)
+    ConnectEvents.submit(event)
+    if verdict == 1 || verdict == 2 {
+        return cgroup.Deny
+    }
+    return cgroup.Allow
+}
+
+@capability(Connect6Block)
+@cgroup("connect6")
+func GateConnect6(ctx cgroup.Connect) i32 {
+    cgroup_id := bpf.current_cgroup_id()
+    scope := CellScope.lookup(cgroup_id)
+    if scope == nil {
+        return cgroup.Allow
+    }
+    event := ConnectEvents.reserve()
+    if event == nil {
+        bump_drop(3)
+        if scope.class != 2 {
+            return cgroup.Deny
+        }
+        return cgroup.Allow
+    }
+    if cgroup.dst_ip6(ctx, &event.dst_ip6) != 0 {
+        ConnectEvents.discard(event)
+        if scope.class != 2 {
+            return cgroup.Deny
+        }
+        return cgroup.Allow
+    }
+    port := cgroup.dst_port(ctx)
+    protocol := cgroup.protocol(ctx)
+    verdict := u32(0)
+    word0 := cgroup.dst_ip6_word(ctx, 0)
+    key := Net6Key{cgroup_id: cgroup_id, dst_ip6_0: word0, dst_ip6_1: cgroup.dst_ip6_word(ctx, 1), dst_ip6_2: cgroup.dst_ip6_word(ctx, 2), dst_ip6_3: cgroup.dst_ip6_word(ctx, 3), dst_port: port, protocol: u16(protocol)}
+    allowed := Net6Allow.lookup(key)
+    if allowed == nil {
+        private_net := (word0 & u32(254)) == u32(252) || (word0 & u32(49407)) == u32(33022)
+        if private_net {
+            verdict = 1
+        } else if scope.class == 1 {
+            verdict = 2
+        } else if scope.class == 0 {
+            verdict = 1
+        }
+    }
+    net6_grant := ActionGrant.lookup(ActionKey{cgroup_id: cgroup_id, pid: bpf.current_pid(), kind: 3})
+    if verdict == 2 && net6_grant != nil {
+        verdict = 3
+    }
+    event.dst_port = port
+    event.family = u16(cgroup.family(ctx))
+    event.protocol = u16(protocol)
+    event.hdr.ts_ns = bpf.ktime_get_ns()
+    event.hdr.cell_lo = scope.cell_lo
+    event.hdr.cell_hi = scope.cell_hi
+    event.hdr.cgroup_id = cgroup_id
+    event.hdr.pid = bpf.current_pid()
+    event.hdr.ppid = bpf.current_ppid()
+    event.hdr.tgid = event.hdr.pid
+    event.hdr.uid = bpf.current_uid()
+    event.hdr.kind = 3
+    event.hdr.verdict = verdict
+    bpf.current_comm(&event.hdr.comm)
+    ConnectEvents.submit(event)
+    if verdict == 1 || verdict == 2 {
+        return cgroup.Deny
+    }
+    return cgroup.Allow
+}

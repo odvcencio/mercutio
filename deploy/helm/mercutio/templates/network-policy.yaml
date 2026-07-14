@@ -1,0 +1,82 @@
+{{- if and .Values.sandbox.enabled .Values.networkPolicy.enabled }}
+{{- range $profile := list "strict" "standard" "open" }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mercutio.fullname" $ }}-default-deny-all
+  namespace: {{ index $.Values.cellNamespaces $profile }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mercutio.fullname" $ }}-control-and-dns
+  namespace: {{ index $.Values.cellNamespaces $profile }}
+spec:
+  podSelector:
+    matchLabels:
+      mercutio.dev/managed: "true"
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Release.Namespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "mercutio.name" $ }}
+              app.kubernetes.io/instance: {{ $.Release.Name }}
+      ports:
+        - {protocol: TCP, port: {{ $.Values.service.port }}}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+{{- if eq $profile "standard" }}
+    - to:
+        - ipBlock: {cidr: 0.0.0.0/0}
+      ports:
+        - {protocol: TCP, port: 443}
+{{- else if eq $profile "open" }}
+    - {}
+{{- end }}
+---
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mercutio.fullname" . }}-nodeagent-egress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: nodeagent
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "mercutio.name" . }}
+              app.kubernetes.io/instance: {{ .Release.Name }}
+      ports:
+        - {protocol: TCP, port: {{ .Values.internalTLS.port }}}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock: {cidr: {{ .Values.networkPolicy.kubernetesAPICIDR | quote }}}
+      ports:
+        - {protocol: TCP, port: 443}
+{{- end }}

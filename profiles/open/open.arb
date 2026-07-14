@@ -1,0 +1,9 @@
+# Mercutio open profile: recorded, not contained, except universal host boundaries.
+rule DenySensitive priority 1 { when { action == "file" and (resource.domain == "sensitive" or resource.domain == "proc-other") } then Deny { reason: "host secrets remain blocked" } }
+rule AllowOpenFiles priority 10 { when { action == "file" and (resource.domain == "worktree" or resource.domain == "tmp" or resource.domain == "cache" or resource.domain == "system" or resource.domain == "other" or resource.domain == "ci") } then Allow { reason: "open file activity is recorded" } }
+
+rule DenyPrivilegeExec priority 1 { when { action == "exec" and resource.domain == "privilege" } then Deny { reason: "privilege tools remain blocked" } }
+rule AllowOpenExec priority 10 { when { action == "exec" and (resource.domain == "toolchain" or resource.domain == "vcs" or resource.domain == "coreutils" or resource.domain == "shell" or resource.domain == "network-tool" or resource.domain == "package-manager" or resource.domain == "inline" or resource.domain == "worktree-binary") } then Allow { reason: "open execution is recorded" } }
+
+rule DenyProtectedNet priority 1 { when { action == "net" and (resource.domain == "private" or resource.domain == "metadata" or resource.domain == "kubernetes" or resource.domain == "cell") } then Deny { reason: "host and cluster boundaries remain blocked" } }
+rule AllowOpenNet priority 10 { when { action == "net" and (resource.domain == "control-plane" or resource.domain == "dns" or resource.domain == "registry-mirror" or resource.domain == "dependency" or resource.domain == "public") } then Allow { reason: "open egress is recorded" } }

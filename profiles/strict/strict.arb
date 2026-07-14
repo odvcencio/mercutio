@@ -1,0 +1,14 @@
+# Mercutio strict profile. Arbiter source is the human-readable policy truth.
+rule DenySensitive priority 1 { when { action == "file" and (resource.domain == "sensitive" or resource.domain == "proc-other") } then Deny { reason: "credential and process secrets are blocked" } }
+rule AskCIWrite priority 2 { when { action == "file" and resource.domain == "ci" and resource.op == "write" } then AskHuman { reason: "CI changes require operator approval" } }
+rule AllowCIRead priority 3 { when { action == "file" and resource.domain == "ci" and resource.op == "read" } then Allow { reason: "CI files are readable" } }
+rule AllowWorkFiles priority 10 { when { action == "file" and (resource.domain == "worktree" or resource.domain == "tmp") } then Allow { reason: "declared writable scope" } }
+rule AllowReadonlyFiles priority 10 { when { action == "file" and (resource.domain == "cache" or resource.domain == "system") and resource.op == "read" } then Allow { reason: "read-only runtime scope" } }
+rule DenyOtherFiles priority 90 { when { action == "file" and (resource.domain == "cache" or resource.domain == "system" or resource.domain == "other") and resource.op == "write" } then Deny { reason: "write outside declared scope" } }
+rule DenyOtherReads priority 90 { when { action == "file" and resource.domain == "other" and resource.op == "read" } then Deny { reason: "undeclared file scope" } }
+
+rule AllowStrictExec priority 10 { when { action == "exec" and (resource.domain == "toolchain" or resource.domain == "vcs" or resource.domain == "coreutils") } then Allow { reason: "strict executable allowlist" } }
+rule DenyStrictExec priority 20 { when { action == "exec" and (resource.domain == "shell" or resource.domain == "network-tool" or resource.domain == "package-manager" or resource.domain == "inline" or resource.domain == "worktree-binary" or resource.domain == "privilege") } then Deny { reason: "not on strict executable allowlist" } }
+
+rule AllowStrictNet priority 10 { when { action == "net" and (resource.domain == "control-plane" or resource.domain == "dns" or resource.domain == "registry-mirror") } then Allow { reason: "required cluster service" } }
+rule DenyStrictNet priority 20 { when { action == "net" and (resource.domain == "dependency" or resource.domain == "public" or resource.domain == "private" or resource.domain == "metadata" or resource.domain == "kubernetes" or resource.domain == "cell") } then Deny { reason: "strict egress deny" } }

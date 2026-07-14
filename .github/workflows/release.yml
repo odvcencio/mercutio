@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify release source
+        run: make check
+      - name: Build release binaries
+        run: |
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o "dist/mercutio-linux-$arch" ./cmd/mercutio
+            (cd nodeagent && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "../dist/mercutio-nodeagent-linux-$arch" ./cmd/mercutio-nodeagent)
+          done
+      - name: Sign Horizon enforcement payload
+        env:
+          HORIZON_RELEASE_PRIVATE_KEY: ${{ secrets.HORIZON_RELEASE_PRIVATE_KEY }}
+        run: |
+          test -n "$HORIZON_RELEASE_PRIVATE_KEY"
+          printf '%s' "$HORIZON_RELEASE_PRIVATE_KEY" > "$RUNNER_TEMP/horizon.key"
+          chmod 600 "$RUNNER_TEMP/horizon.key"
+          (cd nodeagent && go run ./cmd/mercutio-artifacts --private-key "$RUNNER_TEMP/horizon.key" --key-id mercutio-v1 --out dist)
+          cp nodeagent/dist/* dist/
+          sha256sum dist/* > dist/SHA256SUMS
+      - uses: anchore/sbom-action@v0
+        with:
+          path: ./dist
+          format: spdx-json
+          output-file: ./dist/mercutio.spdx.json
+      - uses: sigstore/cosign-installer@v3
+      - name: Keyless-sign release files
+        run: |
+          find dist -maxdepth 1 -type f ! -name '*.sigstore.json' -print0 | while IFS= read -r -d '' file; do
+            cosign sign-blob --yes --bundle "$file.sigstore.json" "$file"
+          done
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish control-plane image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/odvcencio/mercutio:${{ github.ref_name }}
+          sbom: true
+          provenance: mode=max
+      - name: Publish signed Node Agent image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: nodeagent.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/odvcencio/mercutio-nodeagent:${{ github.ref_name }}
+          sbom: true
+          provenance: mode=max
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

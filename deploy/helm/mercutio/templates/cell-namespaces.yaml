@@ -1,0 +1,12 @@
+{{- if .Values.sandbox.enabled }}
+{{- range $profile := list "strict" "standard" "open" }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ index $.Values.cellNamespaces $profile }}
+  labels:
+    mercutio.dev/cell-class: {{ $profile }}
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+---
+{{- end }}
+{{- end }}

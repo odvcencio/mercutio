@@ -1,10 +1,67 @@
 package cell
 
 import (
+	"context"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"m31labs.dev/mercutio/internal/evidence"
+	"time"
+
 	"m31labs.dev/mercutio/internal/model"
+	"m31labs.dev/mercutio/internal/sandbox"
 )
+
+func TestGarbageCollectRemovesOrphansAndRetainsLiveCells(t *testing.T) {
+	runtime := sandbox.NewMemoryRuntime()
+	store := NewStoreWithOptions(Options{Runtime: runtime})
+	if _, err := runtime.Ensure(context.Background(), sandbox.Spec{CellID: "orphan", RepoURL: "https://github.com/example/orphan", Profile: "standard"}); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := store.GarbageCollect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 1 || removed[0] != "orphan" {
+		t.Fatalf("removed = %v", removed)
+	}
+	orphan, err := runtime.Observe(context.Background(), "orphan")
+	if err != nil || orphan.Phase != sandbox.PhaseStopped {
+		t.Fatalf("orphan = %+v, %v", orphan, err)
+	}
+	live, err := runtime.Observe(context.Background(), "cell-demo")
+	if err != nil || live.Phase != sandbox.PhaseRunning {
+		t.Fatalf("live = %+v, %v", live, err)
+	}
+}
+
+func TestEvidenceSurvivesCellDestructionAndStoreLifetime(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "evidence.jsonl")
+	ledger, err := evidence.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStoreWithOptions(Options{Evidence: ledger})
+	created, err := store.Create("https://github.com/example/durable", "main", "standard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Destroy(created.ID); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := evidence.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := reopened.Records(created.ID)
+	if len(records) < 3 {
+		t.Fatalf("durable records = %d, want lifecycle and policy evidence", len(records))
+	}
+	if records[len(records)-1].Kind != "event" {
+		t.Fatalf("last durable record = %#v", records[len(records)-1])
+	}
+}
 
 func TestStoreLifecycleAndSharedDocuments(t *testing.T) {
 	store := NewStore()
@@ -35,7 +92,10 @@ func TestStoreLifecycleAndSharedDocuments(t *testing.T) {
 		t.Fatalf("steered cell = %+v", steered.Cell)
 	}
 
-	approved, err := store.ApproveReview(created.ID, created.Reviews[0].ID)
+	if len(updated.Reviews) == 0 {
+		t.Fatal("edit did not produce an entity review")
+	}
+	approved, err := store.ApproveReview(created.ID, updated.Reviews[0].ID)
 	if err != nil {
 		t.Fatalf("ApproveReview: %v", err)
 	}
@@ -52,6 +112,90 @@ func TestStoreLifecycleAndSharedDocuments(t *testing.T) {
 	}
 }
 
+func TestApplySpliceUsesExactUnicodeBaseAndRejectsStaleWriter(t *testing.T) {
+	store := NewStore()
+	initial := "a🙂c"
+	if _, err := store.ApplyEdit("cell-demo", "unicode.txt", initial, "operator"); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.ApplySplice("cell-demo", "unicode.txt", browserContentHash(initial), 1, 1, "β", "operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	for _, file := range updated.Files {
+		if file.Path == "unicode.txt" {
+			got = file.Content
+		}
+	}
+	if got != "aβc" {
+		t.Fatalf("content=%q", got)
+	}
+	if _, err := store.ApplySplice("cell-demo", "unicode.txt", browserContentHash(initial), 0, 0, "stale", "operator"); err == nil {
+		t.Fatal("stale browser splice was accepted")
+	}
+}
+
+func TestActionApprovalIsDeliveredExactlyOnce(t *testing.T) {
+	store := NewStore()
+	if _, err := store.MarkArmed("cell-demo", ArmReceipt{NodeID: "node-a", Programs: []string{"GateExec"}, ManifestDigest: "sha256:manifest", ObjectDigest: "sha256:object", CgroupID: 99, Enforcement: "r1-bpf-lsm"}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, request, err := store.RequestActionApproval("cell-demo", "ask-1", "node-a", 77, 42, "exec", "/workspace/repo/tool")
+	if err != nil || request.Status != "pending" || len(snapshot.ActionApprovals) != 1 {
+		t.Fatalf("request=%+v snapshot=%+v err=%v", request, snapshot.ActionApprovals, err)
+	}
+	if _, err := store.DecideActionApproval("cell-demo", request.ID, "operator", true); err != nil {
+		t.Fatal(err)
+	}
+	decisions := store.TakeNodeActionDecisions("node-a")
+	if len(decisions) != 1 || decisions[0].Status != "approved" || decisions[0].CgroupID != 77 || decisions[0].PID != 42 {
+		t.Fatalf("decisions=%+v", decisions)
+	}
+	if repeated := store.TakeNodeActionDecisions("node-a"); len(repeated) != 0 {
+		t.Fatalf("decision delivered more than once: %+v", repeated)
+	}
+}
+
+func TestDiskEditWithStaleBaseBecomesShadow(t *testing.T) {
+	store := NewStore()
+	before, _ := store.Snapshot("cell-demo")
+	current := before.Files[1].Content
+	snapshot, err := store.ApplyDiskEdit("cell-demo", before.Files[1].Path, "stale", "agent disk", "agent-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Shadows) == 0 || snapshot.Shadows[len(snapshot.Shadows)-1].After != "agent disk" || snapshot.Files[1].Content != current {
+		t.Fatalf("stale disk edit was not preserved: shadows=%+v file=%q", snapshot.Shadows, snapshot.Files[1].Content)
+	}
+	snapshot, err = store.ApplyDiskEdit("cell-demo", before.Files[1].Path, current, "agent applied", "agent-demo")
+	if err != nil || snapshot.Files[1].Content != "agent applied" {
+		t.Fatalf("matching disk edit=%q err=%v", snapshot.Files[1].Content, err)
+	}
+}
+
+func TestDiskDeleteRequiresExactBase(t *testing.T) {
+	store := NewStore()
+	before, _ := store.Snapshot("cell-demo")
+	path, current := before.Files[1].Path, before.Files[1].Content
+	snapshot, err := store.ApplyDiskDelete("cell-demo", path, "stale", "agent-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Files) != len(before.Files) || len(snapshot.Shadows) == 0 || snapshot.Shadows[len(snapshot.Shadows)-1].After != "" {
+		t.Fatalf("uncertain deletion was not shadowed: files=%d shadows=%+v", len(snapshot.Files), snapshot.Shadows)
+	}
+	snapshot, err = store.ApplyDiskDelete("cell-demo", path, current, "agent-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range snapshot.Files {
+		if file.Path == path {
+			t.Fatalf("exact-base disk deletion retained %q", path)
+		}
+	}
+}
+
 func TestStoreRejectsBlankCommands(t *testing.T) {
 	store := NewStore()
 	if _, err := store.Create("", "main", "standard"); err == nil {
@@ -62,5 +206,44 @@ func TestStoreRejectsBlankCommands(t *testing.T) {
 	}
 	if _, err := store.ApplyEdit("cell-demo", "", "x", "operator"); err == nil {
 		t.Fatal("ApplyEdit accepted a blank path")
+	}
+	if _, err := store.Create("https://github.com/example/project", "main", "custom"); err == nil {
+		t.Fatal("Create accepted an unknown capability profile")
+	}
+	writeCap, _ := store.MintSecretCapability("cell-demo", "operator", "secret:write")
+	if _, _, err := store.PutSecret("cell-demo", "api-token", "secret-value", "operator", writeCap); err != nil {
+		t.Fatalf("PutSecret: %v", err)
+	}
+	token, err := store.AttachToken("cell-demo")
+	if err != nil {
+		t.Fatalf("AttachToken: %v", err)
+	}
+	if _, _, err := store.SecretValue("cell-demo", "api-token", "agent-cell-demo", token); err == nil {
+		t.Fatal("agent attach capability revealed a brokered secret")
+	}
+	snapshot, err := store.Snapshot("cell-demo")
+	if err != nil || len(snapshot.Events) == 0 {
+		t.Fatalf("Snapshot after secret = %+v, %v", snapshot, err)
+	}
+	for _, event := range snapshot.Events {
+		if strings.Contains(event.Detail, "secret-value") {
+			t.Fatalf("secret leaked in event: %+v", event)
+		}
+	}
+	if _, err := store.Destroy("cell-demo"); err != nil {
+		t.Fatalf("Destroy after secret: %v", err)
+	}
+}
+
+func TestStoreTracksIntentKernelDivergence(t *testing.T) {
+	store := NewStore()
+	now := time.Now().UTC()
+	intent, err := store.RecordEvent("cell-demo", model.Event{Kind: model.EventIntent, Source: "agent", Action: "test.run", TraceID: "trace-1", Timestamp: now})
+	if err != nil || !intent.Divergence {
+		t.Fatalf("intent divergence = %+v, %v", intent.Cell, err)
+	}
+	observed, err := store.RecordEvent("cell-demo", model.Event{Kind: model.EventKernel, Source: "horizon", Action: "process.exec", TraceID: "trace-1", Timestamp: now.Add(time.Second)})
+	if err != nil || observed.Divergence {
+		t.Fatalf("kernel divergence = %+v, %v", observed.Cell, err)
 	}
 }

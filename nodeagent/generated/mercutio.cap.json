@@ -1,0 +1,1477 @@
+{
+  "schema": "m31labs.dev/horizon/capability/v1",
+  "package": "mercutio",
+  "programs": [
+    {
+      "name": "OnExec",
+      "kind": "tracepoint",
+      "attach": "sched:sched_process_exec",
+      "section": "tracepoint/sched:sched_process_exec",
+      "capabilities": [
+        "kernel.process.exec.observe"
+      ]
+    },
+    {
+      "name": "GateExec",
+      "kind": "lsm",
+      "attach": "bprm_check_security",
+      "section": "lsm/bprm_check_security",
+      "capabilities": [
+        "kernel.process.exec.block"
+      ]
+    },
+    {
+      "name": "GateFileOpen",
+      "kind": "lsm",
+      "attach": "file_open",
+      "section": "lsm/file_open",
+      "capabilities": [
+        "kernel.file.open.block"
+      ]
+    },
+    {
+      "name": "GateConnect4",
+      "kind": "cgroup",
+      "attach": "connect4",
+      "section": "cgroup/connect4",
+      "capabilities": [
+        "kernel.network.connect.block"
+      ]
+    },
+    {
+      "name": "GateConnect6",
+      "kind": "cgroup",
+      "attach": "connect6",
+      "section": "cgroup/connect6",
+      "capabilities": [
+        "kernel.network.connect6.block"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "name": "kernel.process.exec.observe",
+      "kind": "source",
+      "danger": {
+        "mode": "observe",
+        "scope": "event",
+        "reversibility": "none"
+      },
+      "program": "OnExec",
+      "section": "tracepoint/sched:sched_process_exec",
+      "emits": "ExecEvent",
+      "maps": {
+        "read": [
+          "CellScope"
+        ],
+        "write": [],
+        "events": [
+          "ExecEvents"
+        ]
+      },
+      "requirements": {
+        "min_kernel": "5.8",
+        "programs": [
+          {
+            "name": "tracepoint",
+            "min_kernel": "4.7"
+          }
+        ],
+        "maps": [
+          {
+            "name": "hash",
+            "min_kernel": "3.19"
+          },
+          {
+            "name": "ringbuf",
+            "min_kernel": "5.8"
+          }
+        ],
+        "helpers": [
+          {
+            "name": "bpf_get_current_cgroup_id",
+            "min_kernel": "4.18"
+          },
+          {
+            "name": "bpf_get_current_comm",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_get_current_pid_tgid",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_get_current_task",
+            "min_kernel": "4.8"
+          },
+          {
+            "name": "bpf_get_current_uid_gid",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_ktime_get_ns",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_map_lookup_elem",
+            "min_kernel": "3.19"
+          },
+          {
+            "name": "bpf_map_update_elem",
+            "min_kernel": "3.19"
+          },
+          {
+            "name": "bpf_probe_read_kernel",
+            "min_kernel": "5.5"
+          },
+          {
+            "name": "bpf_probe_read_user",
+            "min_kernel": "5.5"
+          },
+          {
+            "name": "bpf_ringbuf_reserve",
+            "min_kernel": "5.8"
+          },
+          {
+            "name": "bpf_ringbuf_submit",
+            "min_kernel": "5.8"
+          }
+        ],
+        "permissions": [
+          "bpf_program_load",
+          "perf_event_open"
+        ],
+        "features": [
+          "tracefs"
+        ]
+      },
+      "helper_effects": [
+        {
+          "name": "bpf.current_argv",
+          "observes": [
+            "task.argv"
+          ],
+          "requires": [
+            "task_struct.mm",
+            "mm_struct.arg_start",
+            "mm_struct.arg_end"
+          ]
+        },
+        {
+          "name": "bpf.current_cgroup_id",
+          "observes": [
+            "task.cgroup_id"
+          ]
+        },
+        {
+          "name": "bpf.current_comm",
+          "observes": [
+            "task.comm"
+          ]
+        },
+        {
+          "name": "bpf.current_pid",
+          "observes": [
+            "task.tgid"
+          ]
+        },
+        {
+          "name": "bpf.current_ppid",
+          "observes": [
+            "task.real_parent.tgid"
+          ],
+          "requires": [
+            "task_struct.real_parent"
+          ]
+        },
+        {
+          "name": "bpf.current_uid",
+          "observes": [
+            "task.uid"
+          ]
+        },
+        {
+          "name": "bpf.ktime_get_ns",
+          "observes": [
+            "kernel.time.monotonic"
+          ]
+        },
+        {
+          "name": "map.lookup",
+          "observes": [
+            "map:CellScope"
+          ],
+          "resource": "lookup"
+        },
+        {
+          "name": "map.update",
+          "mutates": [
+            "map:Drops"
+          ],
+          "resource": "update"
+        },
+        {
+          "name": "ringbuf.reserve",
+          "mutates": [
+            "ringbuf:ExecEvents"
+          ],
+          "resource": "reserve"
+        },
+        {
+          "name": "ringbuf.submit",
+          "mutates": [
+            "ringbuf:ExecEvents"
+          ],
+          "resource": "submit"
+        }
+      ]
+    },
+    {
+      "name": "kernel.process.exec.block",
+      "kind": "source",
+      "danger": {
+        "mode": "control",
+        "scope": "process",
+        "reversibility": "restart"
+      },
+      "program": "GateExec",
+      "section": "lsm/bprm_check_security",
+      "emits": "ExecEvent",
+      "maps": {
+        "read": [
+          "CellScope",
+          "ActionGrant"
+        ],
+        "write": [],
+        "events": [
+          "ExecEvents"
+        ]
+      },
+      "requirements": {
+        "min_kernel": "5.8",
+        "programs": [
+          {
+            "name": "lsm",
+            "min_kernel": "5.7"
+          }
+        ],
+        "maps": [
+          {
+            "name": "hash",
+            "min_kernel": "3.19"
+          },
+          {
+            "name": "ringbuf",
+            "min_kernel": "5.8"
+          }
+        ],
+        "helpers": [
+          {
+            "name": "bpf_get_current_cgroup_id",
+            "min_kernel": "4.18"
+          },
+          {
+            "name": "bpf_get_current_comm",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_get_current_pid_tgid",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_get_current_task",
+            "min_kernel": "4.8"
+          },
+          {
+            "name": "bpf_get_current_uid_gid",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_ktime_get_ns",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_map_lookup_elem",
+            "min_kernel": "3.19"
+          },
+          {
+            "name": "bpf_map_update_elem",
+            "min_kernel": "3.19"
+          },
+          {
+            "name": "bpf_probe_read_kernel",
+            "min_kernel": "5.5"
+          },
+          {
+            "name": "bpf_probe_read_kernel_str",
+            "min_kernel": "5.5"
+          },
+          {
+            "name": "bpf_ringbuf_reserve",
+            "min_kernel": "5.8"
+          },
+          {
+            "name": "bpf_ringbuf_submit",
+            "min_kernel": "5.8"
+          }
+        ],
+        "permissions": [
+          "bpf_program_load",
+          "lsm_admin"
+        ],
+        "features": [
+          "bpf_lsm"
+        ]
+      },
+      "helper_effects": [
+        {
+          "name": "bpf.current_cgroup_id",
+          "observes": [
+            "task.cgroup_id"
+          ]
+        },
+        {
+          "name": "bpf.current_comm",
+          "observes": [
+            "task.comm"
+          ]
+        },
+        {
+          "name": "bpf.current_pid",
+          "observes": [
+            "task.tgid"
+          ]
+        },
+        {
+          "name": "bpf.current_ppid",
+          "observes": [
+            "task.real_parent.tgid"
+          ],
+          "requires": [
+            "task_struct.real_parent"
+          ]
+        },
+        {
+          "name": "bpf.current_uid",
+          "observes": [
+            "task.uid"
+          ]
+        },
+        {
+          "name": "bpf.ktime_get_ns",
+          "observes": [
+            "kernel.time.monotonic"
+          ]
+        },
+        {
+          "name": "lsm.bprm_filename",
+          "observes": [
+            "kernel.bprm.filename"
+          ]
+        },
+        {
+          "name": "lsm.path_has_prefix"
+        },
+        {
+          "name": "map.lookup",
+          "observes": [
+            "map:CellScope"
+          ],
+          "resource": "lookup"
+        },
+        {
+          "name": "map.update",
+          "mutates": [
+            "map:Drops"
+          ],
+          "resource": "update"
+        },
+        {
+          "name": "ringbuf.reserve",
+          "mutates": [
+            "ringbuf:ExecEvents"
+          ],
+          "resource": "reserve"
+        },
+        {
+          "name": "ringbuf.submit",
+          "mutates": [
+            "ringbuf:ExecEvents"
+          ],
+          "resource": "submit"
+        }
+      ]
+    },
+    {
+      "name": "kernel.file.open.block",
+      "kind": "source",
+      "danger": {
+        "mode": "control",
+        "scope": "filesystem",
+        "reversibility": "restart"
+      },
+      "program": "GateFileOpen",
+      "section": "lsm/file_open",
+      "emits": "FileEvent",
+      "maps": {
+        "read": [
+          "CellScope",
+          "ActionGrant"
+        ],
+        "write": [],
+        "events": [
+          "FileEvents"
+        ]
+      },
+      "requirements": {
+        "min_kernel": "5.10",
+        "programs": [
+          {
+            "name": "lsm",
+            "min_kernel": "5.7"
+          }
+        ],
+        "maps": [
+          {
+            "name": "hash",
+            "min_kernel": "3.19"
+          },
+          {
+            "name": "ringbuf",
+            "min_kernel": "5.8"
+          }
+        ],
+        "helpers": [
+          {
+            "name": "bpf_d_path",
+            "min_kernel": "5.10"
+          },
+          {
+            "name": "bpf_get_current_cgroup_id",
+            "min_kernel": "4.18"
+          },
+          {
+            "name": "bpf_get_current_comm",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_get_current_pid_tgid",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_get_current_task",
+            "min_kernel": "4.8"
+          },
+          {
+            "name": "bpf_get_current_uid_gid",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_ktime_get_ns",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_map_lookup_elem",
+            "min_kernel": "3.19"
+          },
+          {
+            "name": "bpf_map_update_elem",
+            "min_kernel": "3.19"
+          },
+          {
+            "name": "bpf_probe_read_kernel",
+            "min_kernel": "5.5"
+          },
+          {
+            "name": "bpf_ringbuf_reserve",
+            "min_kernel": "5.8"
+          },
+          {
+            "name": "bpf_ringbuf_submit",
+            "min_kernel": "5.8"
+          }
+        ],
+        "permissions": [
+          "bpf_program_load",
+          "lsm_admin"
+        ],
+        "features": [
+          "bpf_lsm"
+        ]
+      },
+      "helper_effects": [
+        {
+          "name": "bpf.current_cgroup_id",
+          "observes": [
+            "task.cgroup_id"
+          ]
+        },
+        {
+          "name": "bpf.current_comm",
+          "observes": [
+            "task.comm"
+          ]
+        },
+        {
+          "name": "bpf.current_pid",
+          "observes": [
+            "task.tgid"
+          ]
+        },
+        {
+          "name": "bpf.current_ppid",
+          "observes": [
+            "task.real_parent.tgid"
+          ],
+          "requires": [
+            "task_struct.real_parent"
+          ]
+        },
+        {
+          "name": "bpf.current_uid",
+          "observes": [
+            "task.uid"
+          ]
+        },
+        {
+          "name": "bpf.ktime_get_ns",
+          "observes": [
+            "kernel.time.monotonic"
+          ]
+        },
+        {
+          "name": "lsm.file_dev",
+          "observes": [
+            "kernel.file.dev"
+          ]
+        },
+        {
+          "name": "lsm.file_flags",
+          "observes": [
+            "kernel.file.flags"
+          ]
+        },
+        {
+          "name": "lsm.file_mode",
+          "observes": [
+            "kernel.file.mode"
+          ]
+        },
+        {
+          "name": "lsm.file_path",
+          "observes": [
+            "kernel.file.path"
+          ]
+        },
+        {
+          "name": "lsm.path_has_prefix"
+        },
+        {
+          "name": "lsm.path_has_suffix"
+        },
+        {
+          "name": "map.lookup",
+          "observes": [
+            "map:CellScope"
+          ],
+          "resource": "lookup"
+        },
+        {
+          "name": "map.update",
+          "mutates": [
+            "map:Drops"
+          ],
+          "resource": "update"
+        },
+        {
+          "name": "ringbuf.reserve",
+          "mutates": [
+            "ringbuf:FileEvents"
+          ],
+          "resource": "reserve"
+        },
+        {
+          "name": "ringbuf.submit",
+          "mutates": [
+            "ringbuf:FileEvents"
+          ],
+          "resource": "submit"
+        }
+      ]
+    },
+    {
+      "name": "kernel.network.connect.block",
+      "kind": "source",
+      "danger": {
+        "mode": "control",
+        "scope": "process",
+        "reversibility": "restart"
+      },
+      "program": "GateConnect4",
+      "section": "cgroup/connect4",
+      "emits": "ConnectEvent",
+      "maps": {
+        "read": [
+          "CellScope",
+          "NetAllow",
+          "ActionGrant"
+        ],
+        "write": [],
+        "events": [
+          "ConnectEvents"
+        ]
+      },
+      "requirements": {
+        "min_kernel": "5.8",
+        "programs": [
+          {
+            "name": "cgroup",
+            "min_kernel": "4.17"
+          }
+        ],
+        "maps": [
+          {
+            "name": "hash",
+            "min_kernel": "3.19"
+          },
+          {
+            "name": "ringbuf",
+            "min_kernel": "5.8"
+          }
+        ],
+        "helpers": [
+          {
+            "name": "bpf_get_current_cgroup_id",
+            "min_kernel": "4.18"
+          },
+          {
+            "name": "bpf_get_current_comm",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_get_current_pid_tgid",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_get_current_task",
+            "min_kernel": "4.8"
+          },
+          {
+            "name": "bpf_get_current_uid_gid",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_ktime_get_ns",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_map_lookup_elem",
+            "min_kernel": "3.19"
+          },
+          {
+            "name": "bpf_map_update_elem",
+            "min_kernel": "3.19"
+          },
+          {
+            "name": "bpf_probe_read_kernel",
+            "min_kernel": "5.5"
+          },
+          {
+            "name": "bpf_ringbuf_reserve",
+            "min_kernel": "5.8"
+          },
+          {
+            "name": "bpf_ringbuf_submit",
+            "min_kernel": "5.8"
+          }
+        ],
+        "permissions": [
+          "bpf_program_load",
+          "cgroup_admin"
+        ],
+        "features": [
+          "cgroup_v2"
+        ]
+      },
+      "helper_effects": [
+        {
+          "name": "bpf.current_cgroup_id",
+          "observes": [
+            "task.cgroup_id"
+          ]
+        },
+        {
+          "name": "bpf.current_comm",
+          "observes": [
+            "task.comm"
+          ]
+        },
+        {
+          "name": "bpf.current_pid",
+          "observes": [
+            "task.tgid"
+          ]
+        },
+        {
+          "name": "bpf.current_ppid",
+          "observes": [
+            "task.real_parent.tgid"
+          ],
+          "requires": [
+            "task_struct.real_parent"
+          ]
+        },
+        {
+          "name": "bpf.current_uid",
+          "observes": [
+            "task.uid"
+          ]
+        },
+        {
+          "name": "bpf.ktime_get_ns",
+          "observes": [
+            "kernel.time.monotonic"
+          ]
+        },
+        {
+          "name": "cgroup.dst_ip4",
+          "observes": [
+            "kernel.socket.dst_ip4"
+          ]
+        },
+        {
+          "name": "cgroup.dst_port",
+          "observes": [
+            "kernel.socket.dst_port"
+          ]
+        },
+        {
+          "name": "cgroup.family",
+          "observes": [
+            "kernel.socket.family"
+          ]
+        },
+        {
+          "name": "cgroup.ip4"
+        },
+        {
+          "name": "cgroup.protocol",
+          "observes": [
+            "kernel.socket.protocol"
+          ]
+        },
+        {
+          "name": "map.lookup",
+          "observes": [
+            "map:CellScope"
+          ],
+          "resource": "lookup"
+        },
+        {
+          "name": "map.update",
+          "mutates": [
+            "map:Drops"
+          ],
+          "resource": "update"
+        },
+        {
+          "name": "ringbuf.reserve",
+          "mutates": [
+            "ringbuf:ConnectEvents"
+          ],
+          "resource": "reserve"
+        },
+        {
+          "name": "ringbuf.submit",
+          "mutates": [
+            "ringbuf:ConnectEvents"
+          ],
+          "resource": "submit"
+        }
+      ]
+    },
+    {
+      "name": "kernel.network.connect6.block",
+      "kind": "source",
+      "danger": {
+        "mode": "control",
+        "scope": "process",
+        "reversibility": "restart"
+      },
+      "program": "GateConnect6",
+      "section": "cgroup/connect6",
+      "emits": "ConnectEvent",
+      "maps": {
+        "read": [
+          "CellScope",
+          "Net6Allow",
+          "ActionGrant"
+        ],
+        "write": [],
+        "events": [
+          "ConnectEvents"
+        ]
+      },
+      "requirements": {
+        "min_kernel": "5.8",
+        "programs": [
+          {
+            "name": "cgroup",
+            "min_kernel": "4.17"
+          }
+        ],
+        "maps": [
+          {
+            "name": "hash",
+            "min_kernel": "3.19"
+          },
+          {
+            "name": "ringbuf",
+            "min_kernel": "5.8"
+          }
+        ],
+        "helpers": [
+          {
+            "name": "bpf_get_current_cgroup_id",
+            "min_kernel": "4.18"
+          },
+          {
+            "name": "bpf_get_current_comm",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_get_current_pid_tgid",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_get_current_task",
+            "min_kernel": "4.8"
+          },
+          {
+            "name": "bpf_get_current_uid_gid",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_ktime_get_ns",
+            "min_kernel": "4.1"
+          },
+          {
+            "name": "bpf_map_lookup_elem",
+            "min_kernel": "3.19"
+          },
+          {
+            "name": "bpf_map_update_elem",
+            "min_kernel": "3.19"
+          },
+          {
+            "name": "bpf_probe_read_kernel",
+            "min_kernel": "5.5"
+          },
+          {
+            "name": "bpf_ringbuf_discard",
+            "min_kernel": "5.8"
+          },
+          {
+            "name": "bpf_ringbuf_reserve",
+            "min_kernel": "5.8"
+          },
+          {
+            "name": "bpf_ringbuf_submit",
+            "min_kernel": "5.8"
+          }
+        ],
+        "permissions": [
+          "bpf_program_load",
+          "cgroup_admin"
+        ],
+        "features": [
+          "cgroup_v2"
+        ]
+      },
+      "helper_effects": [
+        {
+          "name": "bpf.current_cgroup_id",
+          "observes": [
+            "task.cgroup_id"
+          ]
+        },
+        {
+          "name": "bpf.current_comm",
+          "observes": [
+            "task.comm"
+          ]
+        },
+        {
+          "name": "bpf.current_pid",
+          "observes": [
+            "task.tgid"
+          ]
+        },
+        {
+          "name": "bpf.current_ppid",
+          "observes": [
+            "task.real_parent.tgid"
+          ],
+          "requires": [
+            "task_struct.real_parent"
+          ]
+        },
+        {
+          "name": "bpf.current_uid",
+          "observes": [
+            "task.uid"
+          ]
+        },
+        {
+          "name": "bpf.ktime_get_ns",
+          "observes": [
+            "kernel.time.monotonic"
+          ]
+        },
+        {
+          "name": "cgroup.dst_ip6",
+          "observes": [
+            "kernel.socket.dst_ip6"
+          ]
+        },
+        {
+          "name": "cgroup.dst_ip6_word",
+          "observes": [
+            "kernel.socket.dst_ip6"
+          ]
+        },
+        {
+          "name": "cgroup.dst_port",
+          "observes": [
+            "kernel.socket.dst_port"
+          ]
+        },
+        {
+          "name": "cgroup.family",
+          "observes": [
+            "kernel.socket.family"
+          ]
+        },
+        {
+          "name": "cgroup.protocol",
+          "observes": [
+            "kernel.socket.protocol"
+          ]
+        },
+        {
+          "name": "map.lookup",
+          "observes": [
+            "map:CellScope"
+          ],
+          "resource": "lookup"
+        },
+        {
+          "name": "map.update",
+          "mutates": [
+            "map:Drops"
+          ],
+          "resource": "update"
+        },
+        {
+          "name": "ringbuf.discard",
+          "mutates": [
+            "ringbuf:ConnectEvents"
+          ],
+          "resource": "discard"
+        },
+        {
+          "name": "ringbuf.reserve",
+          "mutates": [
+            "ringbuf:ConnectEvents"
+          ],
+          "resource": "reserve"
+        },
+        {
+          "name": "ringbuf.submit",
+          "mutates": [
+            "ringbuf:ConnectEvents"
+          ],
+          "resource": "submit"
+        }
+      ]
+    }
+  ],
+  "maps": [
+    {
+      "name": "CellScope",
+      "kind": "hash",
+      "key": "u64",
+      "value": "CellScopeVal",
+      "max_entries": "4096"
+    },
+    {
+      "name": "NetAllow",
+      "kind": "hash",
+      "key": "NetKey",
+      "value": "u8",
+      "max_entries": "32768"
+    },
+    {
+      "name": "Net6Allow",
+      "kind": "hash",
+      "key": "Net6Key",
+      "value": "u8",
+      "max_entries": "32768"
+    },
+    {
+      "name": "Drops",
+      "kind": "percpu_hash",
+      "key": "u32",
+      "value": "DropCount",
+      "max_entries": "64"
+    },
+    {
+      "name": "ActionGrant",
+      "kind": "hash",
+      "key": "ActionKey",
+      "value": "u8",
+      "max_entries": "4096"
+    },
+    {
+      "name": "ExecEvents",
+      "kind": "ringbuf",
+      "value": "ExecEvent",
+      "max_entries": "16777216"
+    },
+    {
+      "name": "FileEvents",
+      "kind": "ringbuf",
+      "value": "FileEvent",
+      "max_entries": "16777216"
+    },
+    {
+      "name": "ConnectEvents",
+      "kind": "ringbuf",
+      "value": "ConnectEvent",
+      "max_entries": "16777216"
+    }
+  ],
+  "types": [
+    {
+      "name": "CellScopeVal",
+      "kind": "struct",
+      "size": 32,
+      "align": 8,
+      "fields": [
+        {
+          "name": "cell_lo",
+          "type": "u64",
+          "offset": 0
+        },
+        {
+          "name": "cell_hi",
+          "type": "u64",
+          "offset": 8
+        },
+        {
+          "name": "class",
+          "type": "u32",
+          "offset": 16
+        },
+        {
+          "name": "fs_dev",
+          "type": "u64",
+          "offset": 24
+        }
+      ]
+    },
+    {
+      "name": "NetKey",
+      "kind": "struct",
+      "size": 16,
+      "align": 8,
+      "fields": [
+        {
+          "name": "cgroup_id",
+          "type": "u64",
+          "offset": 0
+        },
+        {
+          "name": "dst_ip4",
+          "type": "u32",
+          "offset": 8
+        },
+        {
+          "name": "dst_port",
+          "type": "u16",
+          "offset": 12
+        },
+        {
+          "name": "protocol",
+          "type": "u16",
+          "offset": 14
+        }
+      ]
+    },
+    {
+      "name": "Net6Key",
+      "kind": "struct",
+      "size": 32,
+      "align": 8,
+      "fields": [
+        {
+          "name": "cgroup_id",
+          "type": "u64",
+          "offset": 0
+        },
+        {
+          "name": "dst_ip6_0",
+          "type": "u32",
+          "offset": 8
+        },
+        {
+          "name": "dst_ip6_1",
+          "type": "u32",
+          "offset": 12
+        },
+        {
+          "name": "dst_ip6_2",
+          "type": "u32",
+          "offset": 16
+        },
+        {
+          "name": "dst_ip6_3",
+          "type": "u32",
+          "offset": 20
+        },
+        {
+          "name": "dst_port",
+          "type": "u16",
+          "offset": 24
+        },
+        {
+          "name": "protocol",
+          "type": "u16",
+          "offset": 26
+        }
+      ]
+    },
+    {
+      "name": "EventHeader",
+      "kind": "struct",
+      "size": 80,
+      "align": 8,
+      "fields": [
+        {
+          "name": "ts_ns",
+          "type": "u64",
+          "offset": 0
+        },
+        {
+          "name": "cell_lo",
+          "type": "u64",
+          "offset": 8
+        },
+        {
+          "name": "cell_hi",
+          "type": "u64",
+          "offset": 16
+        },
+        {
+          "name": "cgroup_id",
+          "type": "u64",
+          "offset": 24
+        },
+        {
+          "name": "pid",
+          "type": "u32",
+          "offset": 32
+        },
+        {
+          "name": "ppid",
+          "type": "u32",
+          "offset": 36
+        },
+        {
+          "name": "tgid",
+          "type": "u32",
+          "offset": 40
+        },
+        {
+          "name": "uid",
+          "type": "u32",
+          "offset": 44
+        },
+        {
+          "name": "seq",
+          "type": "u64",
+          "offset": 48
+        },
+        {
+          "name": "kind",
+          "type": "u32",
+          "offset": 56
+        },
+        {
+          "name": "verdict",
+          "type": "u32",
+          "offset": 60
+        },
+        {
+          "name": "comm",
+          "type": "[16]u8",
+          "offset": 64
+        }
+      ]
+    },
+    {
+      "name": "ExecEvent",
+      "kind": "struct",
+      "size": 600,
+      "align": 8,
+      "fields": [
+        {
+          "name": "hdr",
+          "type": "EventHeader",
+          "offset": 0
+        },
+        {
+          "name": "filename",
+          "type": "[256]u8",
+          "offset": 80
+        },
+        {
+          "name": "argv_head",
+          "type": "[256]u8",
+          "offset": 336
+        },
+        {
+          "name": "argv_trunc",
+          "type": "u32",
+          "offset": 592
+        },
+        {
+          "name": "pad",
+          "type": "u32",
+          "offset": 596
+        }
+      ]
+    },
+    {
+      "name": "FileEvent",
+      "kind": "struct",
+      "size": 352,
+      "align": 8,
+      "fields": [
+        {
+          "name": "hdr",
+          "type": "EventHeader",
+          "offset": 0
+        },
+        {
+          "name": "path",
+          "type": "[256]u8",
+          "offset": 80
+        },
+        {
+          "name": "path_trunc",
+          "type": "u32",
+          "offset": 336
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "offset": 340
+        },
+        {
+          "name": "mode",
+          "type": "u32",
+          "offset": 344
+        },
+        {
+          "name": "op",
+          "type": "u32",
+          "offset": 348
+        }
+      ]
+    },
+    {
+      "name": "ConnectEvent",
+      "kind": "struct",
+      "size": 112,
+      "align": 8,
+      "fields": [
+        {
+          "name": "hdr",
+          "type": "EventHeader",
+          "offset": 0
+        },
+        {
+          "name": "dst_ip4",
+          "type": "u32",
+          "offset": 80
+        },
+        {
+          "name": "dst_ip6",
+          "type": "[16]u8",
+          "offset": 84
+        },
+        {
+          "name": "dst_port",
+          "type": "u16",
+          "offset": 100
+        },
+        {
+          "name": "family",
+          "type": "u16",
+          "offset": 102
+        },
+        {
+          "name": "protocol",
+          "type": "u16",
+          "offset": 104
+        },
+        {
+          "name": "pad",
+          "type": "u16",
+          "offset": 106
+        }
+      ]
+    },
+    {
+      "name": "DropCount",
+      "kind": "struct",
+      "size": 8,
+      "align": 8,
+      "fields": [
+        {
+          "name": "count",
+          "type": "u64",
+          "offset": 0
+        }
+      ]
+    },
+    {
+      "name": "ActionKey",
+      "kind": "struct",
+      "size": 16,
+      "align": 8,
+      "fields": [
+        {
+          "name": "cgroup_id",
+          "type": "u64",
+          "offset": 0
+        },
+        {
+          "name": "pid",
+          "type": "u32",
+          "offset": 8
+        },
+        {
+          "name": "kind",
+          "type": "u32",
+          "offset": 12
+        }
+      ]
+    }
+  ],
+  "requirements": {
+    "min_kernel": "5.10",
+    "programs": [
+      {
+        "name": "cgroup",
+        "min_kernel": "4.17"
+      },
+      {
+        "name": "lsm",
+        "min_kernel": "5.7"
+      },
+      {
+        "name": "tracepoint",
+        "min_kernel": "4.7"
+      }
+    ],
+    "maps": [
+      {
+        "name": "hash",
+        "min_kernel": "3.19"
+      },
+      {
+        "name": "percpu_hash",
+        "min_kernel": "4.6"
+      },
+      {
+        "name": "ringbuf",
+        "min_kernel": "5.8"
+      }
+    ],
+    "helpers": [
+      {
+        "name": "bpf_d_path",
+        "min_kernel": "5.10"
+      },
+      {
+        "name": "bpf_get_current_cgroup_id",
+        "min_kernel": "4.18"
+      },
+      {
+        "name": "bpf_get_current_comm",
+        "min_kernel": "4.1"
+      },
+      {
+        "name": "bpf_get_current_pid_tgid",
+        "min_kernel": "4.1"
+      },
+      {
+        "name": "bpf_get_current_task",
+        "min_kernel": "4.8"
+      },
+      {
+        "name": "bpf_get_current_uid_gid",
+        "min_kernel": "4.1"
+      },
+      {
+        "name": "bpf_ktime_get_ns",
+        "min_kernel": "4.1"
+      },
+      {
+        "name": "bpf_map_lookup_elem",
+        "min_kernel": "3.19"
+      },
+      {
+        "name": "bpf_map_update_elem",
+        "min_kernel": "3.19"
+      },
+      {
+        "name": "bpf_probe_read_kernel",
+        "min_kernel": "5.5"
+      },
+      {
+        "name": "bpf_probe_read_kernel_str",
+        "min_kernel": "5.5"
+      },
+      {
+        "name": "bpf_probe_read_user",
+        "min_kernel": "5.5"
+      },
+      {
+        "name": "bpf_ringbuf_discard",
+        "min_kernel": "5.8"
+      },
+      {
+        "name": "bpf_ringbuf_reserve",
+        "min_kernel": "5.8"
+      },
+      {
+        "name": "bpf_ringbuf_submit",
+        "min_kernel": "5.8"
+      }
+    ],
+    "permissions": [
+      "bpf_program_load",
+      "cgroup_admin",
+      "lsm_admin",
+      "perf_event_open"
+    ],
+    "features": [
+      "bpf_lsm",
+      "cgroup_v2",
+      "tracefs"
+    ]
+  }
+}

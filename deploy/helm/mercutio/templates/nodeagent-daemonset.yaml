@@ -1,0 +1,166 @@
+{{- if .Values.nodeAgent.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "mercutio.fullname" . }}-nodeagent
+  labels:
+    {{- include "mercutio.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "mercutio.fullname" . }}-nodeagent
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "mercutio.fullname" . }}-nodeagent
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mercutio.fullname" . }}-nodeagent
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ include "mercutio.fullname" . }}-nodeagent
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "mercutio.fullname" . }}-nodeagent
+  labels:
+    {{- include "mercutio.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "mercutio.name" . }}-nodeagent
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "mercutio.name" . }}-nodeagent
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: nodeagent
+    spec:
+      serviceAccountName: {{ include "mercutio.fullname" . }}-nodeagent
+      automountServiceAccountToken: false
+      hostPID: false
+      hostNetwork: false
+      hostIPC: false
+      containers:
+        - name: nodeagent
+          image: "{{ .Values.nodeAgent.image.repository }}@{{ .Values.nodeAgent.image.digest }}"
+          imagePullPolicy: {{ .Values.nodeAgent.image.pullPolicy }}
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 0
+            capabilities:
+              drop: [ALL]
+              add: [BPF, PERFMON, NET_ADMIN, SYS_RESOURCE]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: MERCUTIO_CONTROL_URL
+              value: "https://{{ include "mercutio.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.internalTLS.port }}"
+            - name: MERCUTIO_EVENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.operator.eventTokenSecret.name }}
+                  key: {{ .Values.operator.eventTokenSecret.key }}
+                  optional: false
+            - name: MERCUTIO_HORIZON_MANIFEST
+              value: {{ .Values.nodeAgent.program.manifest | quote }}
+            - name: MERCUTIO_HORIZON_OBJECT
+              value: {{ .Values.nodeAgent.program.object | quote }}
+            - name: MERCUTIO_HORIZON_PINS
+              value: /etc/mercutio/trust/pins.json
+            - name: MERCUTIO_HORIZON_PUBLIC_KEYS
+              value: /etc/mercutio/trust/public-keys.json
+            - name: MERCUTIO_MTLS_CERT
+              value: /etc/mercutio/mtls/tls.crt
+            - name: MERCUTIO_MTLS_KEY
+              value: /etc/mercutio/mtls/tls.key
+            - name: MERCUTIO_MTLS_CA
+              value: /etc/mercutio/mtls/ca.crt
+            - name: MERCUTIO_BASE_EGRESS
+              value: {{ printf "%s.%s.svc:%v,kube-dns.kube-system.svc.cluster.local:53" (include "mercutio.fullname" .) .Release.Namespace .Values.internalTLS.port | quote }}
+          ports:
+            - name: health
+              containerPort: 9090
+          readinessProbe:
+            httpGet: {path: /readyz, port: health}
+          livenessProbe:
+            httpGet: {path: /healthz, port: health}
+          volumeMounts:
+            - name: bpf
+              mountPath: /sys/fs/bpf
+            - name: cgroup
+              mountPath: /sys/fs/cgroup
+              readOnly: true
+            - name: tracefs
+              mountPath: /sys/kernel/tracing
+              readOnly: true
+            - name: trust
+              mountPath: /etc/mercutio/trust
+              readOnly: true
+            - name: mtls
+              mountPath: /etc/mercutio/mtls
+              readOnly: true
+            - name: kube-api-access
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+            - name: scratch
+              mountPath: /tmp
+      volumes:
+        - name: bpf
+          hostPath:
+            path: /sys/fs/bpf
+            type: Directory
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory
+        - name: tracefs
+          hostPath:
+            path: /sys/kernel/tracing
+            type: Directory
+        - name: trust
+          secret:
+            secretName: {{ .Values.nodeAgent.trustSecret }}
+            optional: false
+        - name: mtls
+          secret:
+            secretName: {{ .Values.nodeAgent.mtlsSecret }}
+            optional: false
+        - name: kube-api-access
+          projected:
+            defaultMode: 420
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        fieldPath: metadata.namespace
+        - name: scratch
+          emptyDir:
+            sizeLimit: 64Mi
+{{- end }}

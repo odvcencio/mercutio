@@ -13,31 +13,126 @@ data:
       labels:
         mercutio.dev/managed: "true"
         mercutio.dev/cell-id: "{{`{{CELL_ID}}`}}"
+        mercutio.m31labs.dev/component: cell
     spec:
       restartPolicy: Never
+      automountServiceAccountToken: false
+      activeDeadlineSeconds: {{ .Values.sandbox.activeDeadlineSeconds }}
+      hostNetwork: false
+      hostPID: false
+      hostIPC: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         - name: materialize-graft-worktree
           image: {{ .Values.sandbox.graftImage }}
-          args: ["worktree", "materialize", "--repo", "{{`{{REPO_URL}}`}}", "--branch", "{{`{{BRANCH}}`}}", "--out", "/workspace"]
+          args: ["clone", "--branch", "{{`{{BRANCH}}`}}", "--no-modules", "{{`{{REPO_URL}}`}}", "/workspace/repo"]
+          securityContext: &restricted
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
           volumeMounts:
             - name: workspace
               mountPath: /workspace
+            - name: scratch
+              mountPath: /tmp
+        - name: report-workspace-device
+          image: {{ .Values.sandbox.armgateImage }}
+          args: ["workspace-probe", "--cell", "{{`{{CELL_ID}}`}}", "--control", "http://{{ include "mercutio.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}", "--workspace", "/workspace/repo"]
+          securityContext: *restricted
+          env:
+            - name: MERCUTIO_ARM_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: "{{`{{ARM_SECRET_REF}}`}}"
+                  key: token
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: scratch
+              mountPath: /tmp
+        - name: armgate
+          image: {{ .Values.sandbox.armgateImage }}
+          args: ["armgate", "--cell", "{{`{{CELL_ID}}`}}", "--control", "http://{{ include "mercutio.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}", "--output", "/run/mercutio/armed"]
+          securityContext: *restricted
+          env:
+            - name: MERCUTIO_ARM_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: "{{`{{ARM_SECRET_REF}}`}}"
+                  key: token
+          volumeMounts:
+            - name: runtime
+              mountPath: /run/mercutio
+            - name: scratch
+              mountPath: /tmp
       containers:
         - name: agent
           image: {{ .Values.sandbox.agentImage }}
+          securityContext: *restricted
+          workingDir: /workspace/repo
           env:
             - name: MERCUTIO_CELL_ID
               value: "{{`{{CELL_ID}}`}}"
-            - name: MERCUTIO_HUB_URL
-              value: "{{`{{HUB_URL}}`}}"
+            - name: MERCUTIO_ATTACH_SOCKET
+              value: /run/mercutio/attach.sock
+            - name: MERCUTIO_SANDBOX_PROFILE
+              value: "{{`{{PROFILE}}`}}"
           resources:
+            requests:
+              cpu: {{ .Values.sandbox.cpuRequest | quote }}
+              memory: {{ .Values.sandbox.memoryRequest | quote }}
             limits:
               cpu: {{ .Values.sandbox.cpuLimit | quote }}
               memory: {{ .Values.sandbox.memoryLimit | quote }}
           volumeMounts:
             - name: workspace
               mountPath: /workspace
+            - name: runtime
+              mountPath: /run/mercutio
+            - name: scratch
+              mountPath: /tmp
+        - name: attach
+          image: {{ .Values.sandbox.attachImage }}
+          args: ["attach", "--cell", "{{`{{CELL_ID}}`}}", "--hub", "{{`{{HUB_URL}}`}}", "--socket", "/run/mercutio/attach.sock", "--worktree", "/workspace/repo"]
+          securityContext: *restricted
+          env:
+            - name: MERCUTIO_ATTACH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: "{{`{{ATTACH_SECRET_REF}}`}}"
+                  key: token
+          resources:
+            requests:
+              cpu: 10m
+              memory: 24Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: runtime
+              mountPath: /run/mercutio
+            - name: scratch
+              mountPath: /tmp
       volumes:
         - name: workspace
-          emptyDir: {}
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.sandbox.workspaceSizeLimit | quote }}
+        - name: runtime
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+        - name: scratch
+          emptyDir:
+            sizeLimit: 256Mi
 {{- end }}
