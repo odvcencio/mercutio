@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"syscall"
 	"testing"
+	"time"
 
 	continuumhorizon "m31labs.dev/continuum/horizon"
 )
@@ -23,9 +24,10 @@ func TestKernelLoadsAttachesAndEnforcesStrictExec(t *testing.T) {
 		t.Fatal("kernel integration requires root")
 	}
 	dist := os.Getenv("MERCUTIO_KERNEL_ARTIFACT_DIR")
+	events := &integrationEventQueue{events: make(chan KernelEvent, 64)}
 	manager, err := NewProgramManager(ProgramOptions{
 		ManifestPath: filepath.Join(dist, "mercutio.cap.json"), ObjectPath: filepath.Join(dist, "mercutio.bpf.o"),
-		DigestPins: readIntegrationPins(t, filepath.Join(dist, "pins.json")), PublicKeys: readIntegrationKeys(t, filepath.Join(dist, "public-keys.json")),
+		DigestPins: readIntegrationPins(t, filepath.Join(dist, "pins.json")), PublicKeys: readIntegrationKeys(t, filepath.Join(dist, "public-keys.json")), Queue: events,
 	})
 	if err != nil {
 		t.Fatalf("load signed BPF collection: %v", err)
@@ -41,9 +43,6 @@ func TestKernelLoadsAttachesAndEnforcesStrictExec(t *testing.T) {
 	workspace := t.TempDir()
 	workspaceInfo, _ := os.Stat(workspace)
 	device := uint64(workspaceInfo.Sys().(*syscall.Stat_t).Dev)
-	if _, err := manager.Arm(context.Background(), Cell{ID: "kernel-test", Profile: "strict", CgroupPath: cgroup, CgroupID: cgroupID, CgroupIDs: []uint64{cgroupID}, WorktreeDev: device, ScratchDev: device, RuntimeDev: device}); err != nil {
-		t.Fatalf("arm strict cgroup: %v", err)
-	}
 	copyPath := filepath.Join(workspace, "copied-true")
 	data, err := os.ReadFile("/bin/true")
 	if err != nil {
@@ -57,6 +56,18 @@ func TestKernelLoadsAttachesAndEnforcesStrictExec(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer fd.Close()
+	sentinel := exec.Command("/bin/sleep", "30")
+	sentinel.SysProcAttr = &syscall.SysProcAttr{UseCgroupFD: true, CgroupFD: int(fd.Fd())}
+	if err := sentinel.Start(); err != nil {
+		t.Fatalf("start cgroup sentinel: %v", err)
+	}
+	defer func() {
+		_ = sentinel.Process.Kill()
+		_ = sentinel.Wait()
+	}()
+	if _, err := manager.Arm(context.Background(), Cell{ID: "kernel-test", Profile: "strict", CgroupPath: cgroup, CgroupID: cgroupID, CgroupIDs: []uint64{cgroupID}, WorktreeDev: device, ScratchDev: device, RuntimeDev: device}); err != nil {
+		t.Fatalf("arm strict cgroup: %v", err)
+	}
 	command := exec.Command(copyPath)
 	command.SysProcAttr = &syscall.SysProcAttr{UseCgroupFD: true, CgroupFD: int(fd.Fd())}
 	err = command.Run()
@@ -65,7 +76,33 @@ func TestKernelLoadsAttachesAndEnforcesStrictExec(t *testing.T) {
 	if !denied {
 		t.Fatalf("strict cgroup executed copied binary; err=%v", err)
 	}
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case event := <-events.events:
+			if event.CellID == "kernel-test" && event.Program == "GateExec" && event.Verdict == "deny" {
+				return
+			}
+		case <-deadline:
+			t.Fatal("strict denial was not visible in the kernel event queue")
+		}
+	}
 }
+
+type integrationEventQueue struct {
+	events chan KernelEvent
+}
+
+func (q *integrationEventQueue) Enqueue(event KernelEvent) bool {
+	select {
+	case q.events <- event:
+		return true
+	default:
+		return false
+	}
+}
+
+func (q *integrationEventQueue) AddKernelDrops(string, uint64) {}
 
 func readIntegrationPins(t *testing.T, path string) map[string]string {
 	t.Helper()
