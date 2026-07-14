@@ -16,21 +16,30 @@ import (
 )
 
 type diskReconciler struct {
-	root        string
-	watcher     *fsnotify.Watcher
-	outbound    func(path, base, content string, deleted bool)
-	mu          sync.Mutex
-	known       map[string]string
-	suppressed  map[string]materialization
-	generation  uint64
-	timers      map[string]*time.Timer
-	initialized bool
-	done        chan struct{}
+	root         string
+	watcher      *fsnotify.Watcher
+	outbound     func(path, base, content string, deleted bool)
+	mu           sync.Mutex
+	known        map[string]string
+	suppressed   map[string]materialization
+	generation   uint64
+	ingestTimers map[string]*time.Timer
+	writeTimers  map[string]*time.Timer
+	pending      map[string]pendingMaterialization
+	initialized  bool
+	done         chan struct{}
 }
 
 type materialization struct {
 	generation uint64
 	hash       string
+	deleted    bool
+}
+
+type pendingMaterialization struct {
+	generation uint64
+	content    string
+	deleted    bool
 }
 
 func newDiskReconciler(root string, outbound func(path, base, content string, deleted bool)) (*diskReconciler, error) {
@@ -47,7 +56,7 @@ func newDiskReconciler(root string, outbound func(path, base, content string, de
 		watcher.Close()
 		return nil, err
 	}
-	r := &diskReconciler{root: root, watcher: watcher, outbound: outbound, known: map[string]string{}, suppressed: map[string]materialization{}, timers: map[string]*time.Timer{}, done: make(chan struct{})}
+	r := &diskReconciler{root: root, watcher: watcher, outbound: outbound, known: map[string]string{}, suppressed: map[string]materialization{}, ingestTimers: map[string]*time.Timer{}, writeTimers: map[string]*time.Timer{}, pending: map[string]pendingMaterialization{}, done: make(chan struct{})}
 	if err := r.addTree(root); err != nil {
 		watcher.Close()
 		return nil, err
@@ -59,7 +68,10 @@ func newDiskReconciler(root string, outbound func(path, base, content string, de
 func (r *diskReconciler) Close() error {
 	close(r.done)
 	r.mu.Lock()
-	for _, timer := range r.timers {
+	for _, timer := range r.ingestTimers {
+		timer.Stop()
+	}
+	for _, timer := range r.writeTimers {
 		timer.Stop()
 	}
 	r.mu.Unlock()
@@ -70,7 +82,9 @@ func (r *diskReconciler) ApplySnapshot(files []model.File) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	first := !r.initialized
+	seen := make(map[string]struct{}, len(files))
 	for _, file := range files {
+		seen[file.Path] = struct{}{}
 		path, err := r.resolve(file.Path)
 		if err != nil {
 			continue
@@ -80,16 +94,66 @@ func (r *diskReconciler) ApplySnapshot(files []model.File) {
 			go r.outbound(file.Path, "", string(disk), false)
 		}
 		if readErr != nil || string(disk) != file.Content {
-			r.generation++
-			r.suppressed[file.Path] = materialization{generation: r.generation, hash: hashText(file.Content)}
-			if atomicWrite(path, []byte(file.Content)) != nil {
-				delete(r.suppressed, file.Path)
-				continue
-			}
+			r.scheduleMaterializationLocked(file.Path, file.Content, false)
+			continue
 		}
 		r.known[file.Path] = file.Content
 	}
+	if r.initialized {
+		for path := range r.known {
+			if _, exists := seen[path]; !exists {
+				r.scheduleMaterializationLocked(path, "", true)
+			}
+		}
+	}
 	r.initialized = true
+}
+
+func (r *diskReconciler) scheduleMaterializationLocked(path, content string, deleted bool) {
+	r.generation++
+	r.pending[path] = pendingMaterialization{generation: r.generation, content: content, deleted: deleted}
+	if timer := r.writeTimers[path]; timer != nil {
+		timer.Stop()
+	}
+	r.writeTimers[path] = time.AfterFunc(75*time.Millisecond, func() { r.materialize(path) })
+}
+
+func (r *diskReconciler) materialize(rel string) {
+	r.mu.Lock()
+	pending, ok := r.pending[rel]
+	if !ok {
+		r.mu.Unlock()
+		return
+	}
+	delete(r.pending, rel)
+	delete(r.writeTimers, rel)
+	r.suppressed[rel] = materialization{generation: pending.generation, hash: hashText(pending.content), deleted: pending.deleted}
+	r.mu.Unlock()
+
+	path, resolveErr := r.resolve(rel)
+	var err error
+	if resolveErr != nil {
+		err = resolveErr
+	} else if pending.deleted {
+		err = os.Remove(path)
+		if os.IsNotExist(err) {
+			err = nil
+		}
+	} else {
+		err = atomicWrite(path, []byte(pending.content))
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err != nil {
+		delete(r.suppressed, rel)
+		return
+	}
+	if pending.deleted {
+		delete(r.known, rel)
+	} else {
+		r.known[rel] = pending.content
+	}
 }
 
 func (r *diskReconciler) run() {
@@ -120,10 +184,10 @@ func (r *diskReconciler) schedule(path string) {
 		return
 	}
 	r.mu.Lock()
-	if timer := r.timers[rel]; timer != nil {
+	if timer := r.ingestTimers[rel]; timer != nil {
 		timer.Stop()
 	}
-	r.timers[rel] = time.AfterFunc(75*time.Millisecond, func() { r.ingest(rel) })
+	r.ingestTimers[rel] = time.AfterFunc(75*time.Millisecond, func() { r.ingest(rel) })
 	r.mu.Unlock()
 }
 
@@ -140,12 +204,16 @@ func (r *diskReconciler) ingest(rel string) {
 		content = nil
 	}
 	r.mu.Lock()
-	delete(r.timers, rel)
+	delete(r.ingestTimers, rel)
 	text := string(content)
 	materialized, suppress := r.suppressed[rel]
 	if suppress && materialized.generation > 0 && materialized.hash == hashText(text) {
 		delete(r.suppressed, rel)
-		r.known[rel] = text
+		if materialized.deleted {
+			delete(r.known, rel)
+		} else {
+			r.known[rel] = text
+		}
 		r.mu.Unlock()
 		return
 	}

@@ -36,9 +36,7 @@ func TestDiskReconcilerPreservesUnknownBytesAndIngestsAgainstKnownBase(t *testin
 	case <-time.After(time.Second):
 		t.Fatal("unknown disk bytes were not preserved")
 	}
-	if got, _ := os.ReadFile(path); string(got) != "server" {
-		t.Fatalf("materialized=%q", got)
-	}
+	waitForDiskContent(t, path, "server")
 	if err := os.WriteFile(path, []byte("agent"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -50,6 +48,41 @@ func TestDiskReconcilerPreservesUnknownBytesAndIngestsAgainstKnownBase(t *testin
 	case <-time.After(2 * time.Second):
 		t.Fatal("disk edit was not ingested")
 	}
+}
+
+func TestDiskReconcilerDebouncesLatestSnapshotAndMaterializesDeletion(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "main.go")
+	if err := os.WriteFile(path, []byte("initial"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	edits := make(chan string, 4)
+	r, err := newDiskReconciler(root, func(_ string, _ string, content string, _ bool) { edits <- content })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	r.ApplySnapshot([]model.File{{Path: "main.go", Content: "initial"}})
+	r.ApplySnapshot([]model.File{{Path: "main.go", Content: "first"}})
+	r.ApplySnapshot([]model.File{{Path: "main.go", Content: "latest"}})
+	if got, _ := os.ReadFile(path); string(got) != "initial" {
+		t.Fatalf("write was not debounced: %q", got)
+	}
+	waitForDiskContent(t, path, "latest")
+	select {
+	case edit := <-edits:
+		t.Fatalf("materialization looped back as disk edit: %q", edit)
+	case <-time.After(200 * time.Millisecond):
+	}
+	r.ApplySnapshot(nil)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("removed CRDT file remained in worktree")
 }
 
 func TestDiskReconcilerReportsDeletion(t *testing.T) {
@@ -107,4 +140,17 @@ func TestAtomicWriteUsesRename(t *testing.T) {
 	if got, _ := os.ReadFile(path); string(got) != "value" {
 		t.Fatalf("content=%q", got)
 	}
+}
+
+func waitForDiskContent(t *testing.T, path, want string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if got, err := os.ReadFile(path); err == nil && string(got) == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	got, err := os.ReadFile(path)
+	t.Fatalf("materialized=%q err=%v, want %q", got, err, want)
 }
