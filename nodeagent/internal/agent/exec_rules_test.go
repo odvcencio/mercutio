@@ -117,3 +117,29 @@ func TestRootedGlobFindsActionsToolcacheWithoutEscapingContainerRoot(t *testing.
 		t.Fatalf("toolcache matches = %v", matches)
 	}
 }
+
+func TestStrictCargoLauncherAndRustupToolsReceiveDistinctVerdicts(t *testing.T) {
+	root := t.TempDir()
+	launcher := filepath.Join(root, "usr/local/cargo/bin/cargo")
+	compiler := filepath.Join(root, "usr/local/rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin/rustc")
+	for _, path := range []string{launcher, compiler} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("binary"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rules := map[bindings.ExecKey]uint32{}
+	addExecPath(rules, root, "/usr/local/cargo/bin/cargo", execToolchainLauncher)
+	for _, path := range rootedGlob(root, "/usr/local/rustup/toolchains/*/bin") {
+		addExecTreeRecursiveResolved(rules, path, execAllow)
+	}
+	counts := map[uint32]int{}
+	for _, verdict := range rules {
+		counts[verdict]++
+	}
+	if counts[execToolchainLauncher] != 1 || counts[execAllow] != 1 {
+		t.Fatalf("strict Cargo toolchain verdicts = %v", counts)
+	}
+}

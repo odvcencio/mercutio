@@ -90,6 +90,7 @@ func TestKernelLoadsAttachesAndEnforcesStrictExec(t *testing.T) {
 		t.Fatalf("arm strict cgroup: %v", err)
 	}
 	assertStrictGoBuildAndTest(t, fd, workspace)
+	assertStrictCargoBuildAndTest(t, fd, workspace)
 	assertDeniedExecVisible(t, exec.Command(copyPath), fd, events, "kernel-test")
 	assertDeniedExecVisible(t, exec.Command("/usr/bin/python3", "-c", "pass"), fd, events, "kernel-test")
 	if err := manager.Disarm(context.Background(), "kernel-test"); err != nil {
@@ -121,6 +122,57 @@ func TestKernelLoadsAttachesAndEnforcesStrictExec(t *testing.T) {
 	}
 	if after.HeapAlloc > before.HeapAlloc+2*1024*1024 {
 		t.Fatalf("NodeAgent heap grew from %d to %d bytes after churn", before.HeapAlloc, after.HeapAlloc)
+	}
+}
+
+func assertStrictCargoBuildAndTest(t *testing.T, cgroup *os.File, workspace string) {
+	t.Helper()
+	cargo, err := exec.LookPath("cargo")
+	if err != nil {
+		t.Log("cargo is not installed on this kernel runner; Rust toolchain proof skipped")
+		return
+	}
+	project := filepath.Join(workspace, "strict-rust-project")
+	target := filepath.Join(workspace, "cargo-target")
+	if err := os.MkdirAll(filepath.Join(project, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"Cargo.toml": "[package]\nname = \"strictproof\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+		"src/lib.rs": `pub fn add(a: i32, b: i32) -> i32 { a + b }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Command;
+
+    #[test]
+    fn generated_runner_executes_but_cannot_spawn_shell() {
+        assert_eq!(add(2, 3), 5);
+        assert!(Command::new("/bin/sh").arg("-c").arg("true").status().is_err());
+    }
+}
+`,
+	}
+	for name, content := range files {
+		path := filepath.Join(project, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	environment := append(os.Environ(), "CARGO_TARGET_DIR="+target, "CARGO_NET_OFFLINE=true")
+	for _, arguments := range [][]string{{"build", "--offline"}, {"test", "--offline"}} {
+		command := exec.Command(cargo, arguments...)
+		command.Dir = project
+		command.Env = environment
+		command.SysProcAttr = &syscall.SysProcAttr{UseCgroupFD: true, CgroupFD: int(cgroup.Fd())}
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("strict cargo %s: %v\n%s", arguments[0], err, output)
+		}
 	}
 }
 

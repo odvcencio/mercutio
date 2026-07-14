@@ -21,8 +21,9 @@ const (
 )
 
 var strictExecPaths = []string{
-	"/usr/bin/cargo",
 	"/usr/bin/git", "/usr/bin/graft", "/usr/bin/buckley", "/usr/local/bin/graft", "/usr/local/bin/buckley",
+	"/usr/bin/rustc", "/usr/bin/rustdoc", "/usr/bin/cc", "/usr/bin/gcc", "/usr/bin/clang",
+	"/usr/bin/ld", "/usr/bin/ar", "/usr/bin/as", "/usr/bin/pkg-config",
 	"/bin/cat", "/bin/cp", "/bin/cut", "/bin/date", "/bin/echo", "/bin/env", "/bin/find", "/bin/grep",
 	"/bin/head", "/bin/ls", "/bin/mkdir", "/bin/mv", "/bin/pwd", "/bin/rm", "/bin/sed", "/bin/sort",
 	"/bin/tail", "/bin/tar", "/bin/touch", "/bin/tr", "/bin/uniq", "/bin/wc",
@@ -33,11 +34,13 @@ var strictExecPaths = []string{
 }
 
 var strictToolchainLauncherPaths = []string{
-	"/usr/local/go/bin/go", "/usr/bin/go",
+	"/usr/local/go/bin/go", "/usr/bin/go", "/usr/bin/cargo", "/usr/local/bin/cargo",
+	"/usr/local/cargo/bin/cargo", "/root/.cargo/bin/cargo", "/home/agent/.cargo/bin/cargo", "/home/nonroot/.cargo/bin/cargo",
 }
 
 var strictToolchainLauncherPatterns = []string{
 	"/usr/lib/go-*/bin/go", "/opt/hostedtoolcache/go/*/*/bin/go",
+	"/home/*/.cargo/bin/cargo",
 }
 
 var strictToolchainTrees = []string{
@@ -46,6 +49,9 @@ var strictToolchainTrees = []string{
 
 var strictToolchainTreePatterns = []string{
 	"/usr/lib/go-*/pkg/tool", "/opt/hostedtoolcache/go/*/*/pkg/tool",
+	"/usr/local/rustup/toolchains/*/bin", "/root/.rustup/toolchains/*/bin",
+	"/home/agent/.rustup/toolchains/*/bin", "/home/nonroot/.rustup/toolchains/*/bin",
+	"/home/*/.rustup/toolchains/*/bin",
 }
 
 var strictAgentPaths = []string{
