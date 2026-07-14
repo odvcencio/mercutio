@@ -1864,33 +1864,75 @@ func (s *Store) ApproveReview(id, reviewID string) (model.CellSnapshot, error) {
 		s.mu.Unlock()
 		return model.CellSnapshot{}, fmt.Errorf("cell %q not found", id)
 	}
-	var request review.CommitRequest
-	for _, candidate := range r.cell.Reviews {
-		if candidate.ID == reviewID {
-			if candidate.Status == "blocked" || !candidate.CommitReady {
-				s.mu.Unlock()
-				return model.CellSnapshot{}, fmt.Errorf("review %q is not commit-ready", reviewID)
-			}
-			if candidate.Status != "pending" {
-				snapshot := snapshotLocked(r)
-				s.mu.Unlock()
-				return snapshot, nil
-			}
-			request = review.CommitRequest{CellID: id, Branch: r.cell.Branch, Review: candidate, Workdir: r.workdir}
-			for i := range r.cell.Reviews {
-				if r.cell.Reviews[i].ID == reviewID {
-					r.cell.Reviews[i].Status = "committing"
-					break
-				}
-			}
+	selected := -1
+	for i := range r.cell.Reviews {
+		if r.cell.Reviews[i].ID == reviewID {
+			selected = i
 			break
 		}
 	}
-	committer := s.committer
-	s.mu.Unlock()
-	if request.Review.ID == "" {
+	if selected < 0 {
+		s.mu.Unlock()
 		return model.CellSnapshot{}, fmt.Errorf("review %q not found", reviewID)
 	}
+	candidate := r.cell.Reviews[selected]
+	if candidate.Status == "blocked" || !candidate.CommitReady {
+		s.mu.Unlock()
+		return model.CellSnapshot{}, fmt.Errorf("review %q is not commit-ready", reviewID)
+	}
+	if candidate.Status != "pending" {
+		snapshot := snapshotLocked(r)
+		s.mu.Unlock()
+		return snapshot, nil
+	}
+	if err := s.appendEvidenceLocked(r, "review-entity-acceptance", map[string]string{"reviewID": reviewID, "entity": candidate.Entity}); err != nil {
+		s.mu.Unlock()
+		return model.CellSnapshot{}, fmt.Errorf("persist entity approval receipt: %w", err)
+	}
+	r.cell.Reviews[selected].Status = "accepted"
+
+	files := map[string]bool{}
+	acceptedIDs := make([]string, 0, len(r.cell.Reviews))
+	readyToCommit := true
+	for i := range r.cell.Reviews {
+		item := &r.cell.Reviews[i]
+		if item.Status != "accepted" {
+			readyToCommit = false
+			continue
+		}
+		acceptedIDs = append(acceptedIDs, item.ID)
+		for _, path := range item.Files {
+			files[path] = true
+		}
+	}
+	sort.Strings(acceptedIDs)
+	now := time.Now().UTC()
+	r.cell.UpdatedAt = now
+	r.cell.Revision++
+	if !readyToCommit {
+		s.appendEventLocked(r, model.Event{Kind: model.EventReview, Source: "operator", Actor: "operator", Action: "review.entity.accept", Summary: "Entity diff accepted; waiting for remaining entities", Detail: "review=" + reviewID, Danger: "medium", Authenticated: true, Timestamp: now})
+		snapshot := snapshotLocked(r)
+		s.mu.Unlock()
+		return snapshot, nil
+	}
+
+	paths := make([]string, 0, len(files))
+	for path := range files {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	aggregate := candidate
+	aggregate.ID = strings.Join(acceptedIDs, "+")
+	aggregate.Entity = fmt.Sprintf("%d accepted entities", len(acceptedIDs))
+	aggregate.Files = paths
+	for i := range r.cell.Reviews {
+		if r.cell.Reviews[i].Status == "accepted" {
+			r.cell.Reviews[i].Status = "committing"
+		}
+	}
+	request := review.CommitRequest{CellID: id, Branch: r.cell.Branch, Review: aggregate, Workdir: r.workdir}
+	committer := s.committer
+	s.mu.Unlock()
 	commitContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	receipt, err := committer.Commit(commitContext, request)
@@ -1899,21 +1941,19 @@ func (s *Store) ApproveReview(id, reviewID string) (model.CellSnapshot, error) {
 	r = s.cells[id]
 	if err != nil {
 		for i := range r.cell.Reviews {
-			if r.cell.Reviews[i].ID == reviewID {
+			if r.cell.Reviews[i].Status == "committing" {
 				r.cell.Reviews[i].Status = "pending"
-				break
 			}
 		}
 		s.appendEventLocked(r, model.Event{Kind: model.EventReview, Source: "buckley", Action: "review.commit.failed", Summary: "Entity diff commit failed", Detail: err.Error(), Danger: "high"})
 		return snapshotLocked(r), err
 	}
 	receipt = secrets.RedactText(receipt)
-	_ = s.appendEvidenceLocked(r, "review-receipt", map[string]string{"reviewID": reviewID, "receipt": receipt})
+	_ = s.appendEvidenceLocked(r, "review-receipt", map[string]any{"reviewIDs": acceptedIDs, "receipt": receipt})
 	for i := range r.cell.Reviews {
-		if r.cell.Reviews[i].ID == reviewID {
+		if r.cell.Reviews[i].Status == "committing" {
 			r.cell.Reviews[i].Status = "approved"
 			r.cell.Reviews[i].Receipt = receipt
-			break
 		}
 	}
 	// A successful commit establishes one coherent BASE for the entire
@@ -1931,10 +1971,10 @@ func (s *Store) ApproveReview(id, reviewID string) (model.CellSnapshot, error) {
 			r.cell.Shadows[i].Stale = true
 		}
 	}
-	now := time.Now().UTC()
+	now = time.Now().UTC()
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
-	s.appendEventLocked(r, model.Event{Kind: model.EventReview, Source: "buckley", Action: "review.approve", Summary: "Entity diff approved", Detail: "Commit receipt: " + receipt, Danger: "high", Timestamp: now})
+	s.appendEventLocked(r, model.Event{Kind: model.EventReview, Source: "buckley", Action: "review.approve", Summary: "Accepted entity set committed", Detail: fmt.Sprintf("entities=%d; commit receipt: %s", len(acceptedIDs), receipt), Danger: "high", Timestamp: now})
 	return snapshotLocked(r), nil
 }
 

@@ -31,6 +31,15 @@ func New(store *cell.Store, hub *transport.CellHub) *Handler {
 	return &Handler{store: store, hub: hub, intelligence: intelligence.New(), proxyClient: &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 
+func (h *Handler) requireOperatorCapability(w http.ResponseWriter, r *http.Request, cellID, permission string) bool {
+	claims, err := h.store.VerifyCapability(strings.TrimSpace(r.Header.Get("X-Mercutio-Capability")), cellID, permission)
+	if err != nil || claims.Role != "operator" || claims.ActorID != "operator" {
+		errorJSON(w, http.StatusForbidden, fmt.Errorf("fresh cell-scoped %s capability required", permission))
+		return false
+	}
+	return true
+}
+
 type kernelBatch struct {
 	NodeID   string            `json:"nodeID"`
 	BatchSeq uint64            `json:"batchSeq"`
@@ -286,6 +295,9 @@ func (h *Handler) Cell(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusBadRequest, err)
 		return
 	}
+	if !h.requireOperatorCapability(w, r, id, "doc:read") {
+		return
+	}
 	snapshot, err := h.store.Snapshot(id)
 	if err != nil {
 		errorJSON(w, http.StatusNotFound, err)
@@ -298,6 +310,9 @@ func (h *Handler) Events(w http.ResponseWriter, r *http.Request) {
 	id, err := pathParam(r.URL.Path, "cells", 2)
 	if err != nil {
 		errorJSON(w, http.StatusBadRequest, err)
+		return
+	}
+	if !h.requireOperatorCapability(w, r, id, "telemetry:read") {
 		return
 	}
 	snapshot, err := h.store.Snapshot(id)
@@ -325,6 +340,9 @@ func (h *Handler) Evidence(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusBadRequest, err)
 		return
 	}
+	if !h.requireOperatorCapability(w, r, id, "telemetry:read") {
+		return
+	}
 	writeJSON(w, http.StatusOK, h.store.Evidence(id))
 }
 
@@ -332,6 +350,9 @@ func (h *Handler) RecordEvent(w http.ResponseWriter, r *http.Request) {
 	id, err := pathParam(r.URL.Path, "cells", 2)
 	if err != nil {
 		errorJSON(w, http.StatusBadRequest, err)
+		return
+	}
+	if !h.requireOperatorCapability(w, r, id, "cell:control") {
 		return
 	}
 	var event model.Event
@@ -484,6 +505,9 @@ func (h *Handler) AttachToken(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusBadRequest, err)
 		return
 	}
+	if !h.requireOperatorCapability(w, r, id, "cell:control") {
+		return
+	}
 	token, err := h.store.AttachToken(id)
 	if err != nil {
 		errorJSON(w, http.StatusNotFound, err)
@@ -569,6 +593,9 @@ func (h *Handler) SecretCapability(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusBadRequest, err)
 		return
 	}
+	if !h.requireOperatorCapability(w, r, id, "cell:control") {
+		return
+	}
 	var input struct {
 		Actor      string `json:"actor"`
 		Permission string `json:"permission"`
@@ -592,6 +619,9 @@ func (h *Handler) SecretDescriptors(w http.ResponseWriter, r *http.Request) {
 	id, err := pathParam(r.URL.Path, "cells", 2)
 	if err != nil {
 		errorJSON(w, http.StatusBadRequest, err)
+		return
+	}
+	if !h.requireOperatorCapability(w, r, id, "doc:read") {
 		return
 	}
 	values, err := h.store.SecretDescriptors(id)
@@ -784,6 +814,9 @@ func (h *Handler) Analyze(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusBadRequest, err)
 		return
 	}
+	if !h.requireOperatorCapability(w, r, id, "doc:read") {
+		return
+	}
 	var input struct {
 		Path    string  `json:"path"`
 		Content *string `json:"content"`
@@ -811,6 +844,9 @@ func (h *Handler) DeleteFile(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusBadRequest, err)
 		return
 	}
+	if !h.requireOperatorCapability(w, r, id, "doc:write") {
+		return
+	}
 	var input struct {
 		Path  string `json:"path"`
 		Actor string `json:"actor"`
@@ -832,6 +868,9 @@ func (h *Handler) PolicyPreview(w http.ResponseWriter, r *http.Request) {
 	id, err := pathParam(r.URL.Path, "cells", 2)
 	if err != nil {
 		errorJSON(w, http.StatusBadRequest, err)
+		return
+	}
+	if !h.requireOperatorCapability(w, r, id, "doc:read") {
 		return
 	}
 	var input struct {
@@ -888,6 +927,9 @@ func (h *Handler) Edit(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusBadRequest, err)
 		return
 	}
+	if !h.requireOperatorCapability(w, r, id, "doc:write") {
+		return
+	}
 	var input struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
@@ -910,6 +952,9 @@ func (h *Handler) UndoEdit(w http.ResponseWriter, r *http.Request) {
 	id, err := pathParam(r.URL.Path, "cells", 2)
 	if err != nil {
 		errorJSON(w, http.StatusBadRequest, err)
+		return
+	}
+	if !h.requireOperatorCapability(w, r, id, "doc:write") {
 		return
 	}
 	var input struct {
@@ -941,6 +986,9 @@ func (h *Handler) Prompt(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusBadRequest, err)
 		return
 	}
+	if !h.requireOperatorCapability(w, r, id, "prompt:write") {
+		return
+	}
 	var input struct {
 		Prompt string `json:"prompt"`
 	}
@@ -966,6 +1014,9 @@ func (h *Handler) Destroy(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusBadRequest, err)
 		return
 	}
+	if !h.requireOperatorCapability(w, r, id, "cell:control") {
+		return
+	}
 	snapshot, err := h.store.Destroy(id)
 	if err != nil {
 		errorJSON(w, http.StatusNotFound, err)
@@ -982,6 +1033,9 @@ func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 		errorJSON(w, http.StatusBadRequest, fmt.Errorf("invalid review path"))
 		return
 	}
+	if !h.requireOperatorCapability(w, r, parts[2], "review:approve") {
+		return
+	}
 	snapshot, err := h.store.ApproveReview(parts[2], parts[4])
 	if err != nil {
 		errorJSON(w, http.StatusNotFound, err)
@@ -995,6 +1049,9 @@ func (h *Handler) AcknowledgeReview(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) < 6 {
 		errorJSON(w, http.StatusBadRequest, fmt.Errorf("invalid review path"))
+		return
+	}
+	if !h.requireOperatorCapability(w, r, parts[2], "review:approve") {
 		return
 	}
 	var input struct {
@@ -1020,6 +1077,9 @@ func (h *Handler) RejectReview(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) < 6 {
 		errorJSON(w, http.StatusBadRequest, fmt.Errorf("invalid review path"))
+		return
+	}
+	if !h.requireOperatorCapability(w, r, parts[2], "review:approve") {
 		return
 	}
 	var input struct {
@@ -1049,6 +1109,9 @@ func (h *Handler) ShadowDecision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cellID, shadowID, operation := parts[2], parts[4], parts[5]
+	if !h.requireOperatorCapability(w, r, cellID, "doc:write") {
+		return
+	}
 	var input struct {
 		Actor  string `json:"actor"`
 		Reason string `json:"reason"`

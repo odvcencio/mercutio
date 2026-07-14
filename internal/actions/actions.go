@@ -16,23 +16,34 @@ import (
 func New(store *cell.Store, hub *transport.CellHub) *action.Registry {
 	registry := action.NewRegistry()
 	registry.Register("create-cell", createCell(store, hub))
-	registry.Register("edit-file", editFile(store, hub))
-	registry.Register("undo-edit", undoEdit(store, hub, false))
-	registry.Register("revert-agent-edit", undoEdit(store, hub, true))
-	registry.Register("delete-file", deleteFile(store, hub))
-	registry.Register("prompt", prompt(store, hub))
-	registry.Register("destroy-cell", destroyCell(store, hub))
-	registry.Register("approve-review", approveReview(store, hub))
-	registry.Register("preview-policy", previewPolicy(store, hub))
-	registry.Register("apply-policy", applyPolicy(store, hub))
-	registry.Register("approve-secret-grant", approveSecretGrant(store, hub))
-	registry.Register("acknowledge-review", acknowledgeReview(store, hub))
-	registry.Register("reject-review", rejectReview(store, hub))
-	registry.Register("adopt-shadow", shadowAction(store, hub, "adopt"))
-	registry.Register("merge-shadow", shadowAction(store, hub, "merge"))
-	registry.Register("discard-shadow", shadowAction(store, hub, "discard"))
-	registry.Register("decide-action", decideAction(store, hub))
+	registry.Register("edit-file", requireCapability(store, "doc:write", editFile(store, hub)))
+	registry.Register("undo-edit", requireCapability(store, "doc:write", undoEdit(store, hub, false)))
+	registry.Register("revert-agent-edit", requireCapability(store, "doc:write", undoEdit(store, hub, true)))
+	registry.Register("delete-file", requireCapability(store, "doc:write", deleteFile(store, hub)))
+	registry.Register("prompt", requireCapability(store, "prompt:write", prompt(store, hub)))
+	registry.Register("destroy-cell", requireCapability(store, "cell:control", destroyCell(store, hub)))
+	registry.Register("approve-review", requireCapability(store, "review:approve", approveReview(store, hub)))
+	registry.Register("preview-policy", requireCapability(store, "doc:write", previewPolicy(store, hub)))
+	registry.Register("apply-policy", requireCapability(store, "policy:apply", applyPolicy(store, hub)))
+	registry.Register("approve-secret-grant", requireCapability(store, "cell:control", approveSecretGrant(store, hub)))
+	registry.Register("acknowledge-review", requireCapability(store, "review:approve", acknowledgeReview(store, hub)))
+	registry.Register("reject-review", requireCapability(store, "review:approve", rejectReview(store, hub)))
+	registry.Register("adopt-shadow", requireCapability(store, "doc:write", shadowAction(store, hub, "adopt")))
+	registry.Register("merge-shadow", requireCapability(store, "doc:write", shadowAction(store, hub, "merge")))
+	registry.Register("discard-shadow", requireCapability(store, "doc:write", shadowAction(store, hub, "discard")))
+	registry.Register("decide-action", requireCapability(store, "cell:control", decideAction(store, hub)))
 	return registry
+}
+
+func requireCapability(store *cell.Store, permission string, next action.Handler) action.Handler {
+	return func(ctx *action.Context) error {
+		cellID := strings.TrimSpace(ctx.FormData["cellID"])
+		claims, err := store.VerifyCapability(strings.TrimSpace(ctx.FormData["capability"]), cellID, permission)
+		if err != nil || claims.Role != "operator" || claims.ActorID != "operator" {
+			return action.Error(403, "fresh cell-scoped "+permission+" capability required")
+		}
+		return next(ctx)
+	}
 }
 
 func previewPolicy(store *cell.Store, hub *transport.CellHub) action.Handler {

@@ -15,7 +15,7 @@ import (
 func TestPageUsesGoSXActionsWithoutApplicationScripts(t *testing.T) {
 	state := model.State{Cells: []model.CellSnapshot{{Cell: model.Cell{
 		ID: "cell-1", Status: model.CellReady, Files: []model.File{{Path: "main.go", Language: "go", Content: "package main\n"}},
-	}}}}
+	}, OperatorCapability: "cell-capability"}}}
 	html := gosx.RenderHTML(Page(state, "cell-1", "main.go", "csrf-token"))
 	for _, want := range []string{
 		`data-gosx-code-surface="true"`,
@@ -36,6 +36,7 @@ func TestPageUsesGoSXActionsWithoutApplicationScripts(t *testing.T) {
 		`data-code-intelligence-runtime="/intelligence/gotreesitter.wasm"`,
 		`data-code-intelligence-server="/api/cells/cell-1/analyze"`,
 		`name="csrf_token" value="csrf-token"`,
+		`name="capability" value="cell-capability"`,
 		`package main`,
 	} {
 		if !strings.Contains(html, want) {
@@ -53,7 +54,7 @@ func TestPolicyEditorRequiresPreviewBeforeApplyAndRendersBlastRadius(t *testing.
 	state := model.State{Cells: []model.CellSnapshot{{Cell: model.Cell{
 		ID: "cell-policy", Status: model.CellReady, SandboxProfile: "standard",
 		Files: []model.File{{Path: "policy/sandbox.yaml", Language: "yaml", Content: "profile: strict\n"}},
-	}}}}
+	}, OperatorCapability: "policy-capability"}}}
 	without := gosx.RenderHTML(Page(state, "cell-policy", "policy/sandbox.yaml", "csrf-token"))
 	if !strings.Contains(without, `action="/gosx/action/preview-policy"`) || strings.Contains(without, `action="/gosx/action/apply-policy"`) {
 		t.Fatalf("policy editor bypasses preview: %s", without)
@@ -77,7 +78,7 @@ func TestMobileShellIsWatchSteerApproveWithoutAuthoringSurfaces(t *testing.T) {
 		Files:   []model.File{{Path: "policy/sandbox.yaml", Language: "yaml", Content: "profile: strict\n"}},
 		Reviews: []model.Review{{ID: "review-1", Title: "Entity change", Summary: "Function changed", Status: "pending", CommitReady: true, EvidenceHealth: "healthy", SecretScanStatus: "clean"}},
 		Shadows: []model.ShadowRevision{{ID: "shadow-1", URI: "shadow://cell-mobile/a.go/shadow-1", Path: "a.go", Author: "agent", Status: "open", Before: "old", After: "new"}},
-	}, Events: []model.Event{{Kind: model.EventIntent, Action: "test.run", Summary: "Agent claims tests passed"}, {Kind: model.EventKernel, Action: "process.exec", Summary: "Observed test runner"}}}}}
+	}, Events: []model.Event{{Kind: model.EventIntent, Action: "test.run", Summary: "Agent claims tests passed"}, {Kind: model.EventKernel, Action: "process.exec", Summary: "Observed test runner"}}, OperatorCapability: "mobile-capability"}}}
 	html := gosx.RenderHTML(MobilePage(state, "cell-mobile", "csrf-token"))
 	for _, want := range []string{`data-shell="mobile"`, `data-typing-first="false"`, `aria-label="Cell fleet"`, `AGENT REPORTED / INTENT`, `KERNEL / HORIZON`, `action="/gosx/action/prompt"`, `action="/gosx/action/approve-review"`, `action="/gosx/action/reject-review"`, `action="/gosx/action/adopt-shadow"`} {
 		if !strings.Contains(html, want) {

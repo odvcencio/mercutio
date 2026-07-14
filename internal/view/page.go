@@ -61,7 +61,7 @@ func MobilePage(state model.State, selectedCellID, csrfToken string) gosx.Node {
 				gosx.El("strong", gosx.Text(cell.ID)),
 				gosx.El("span", gosx.Text(string(cell.Status)+" · "+string(cell.Sandbox.Phase)+" · "+cell.SandboxProfile)),
 			),
-			actionForm(csrfToken, "prompt", "prompt-bar mobile-steer", hidden("cellID", cell.ID), hidden("path", ""), gosx.El("div", gosx.Attrs(gosx.Attr("class", "prompt-icon")), gosx.Text("↗")), gosx.El("input", gosx.Attrs(gosx.Attr("name", "prompt"), gosx.Attr("placeholder", "Steer the agent…"), gosx.Attr("autocomplete", "off"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("class", "prompt-button"), gosx.Attr("type", "submit")), gosx.Text("Send"))),
+			actionForm(csrfToken, "prompt", "prompt-bar mobile-steer", hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), hidden("path", ""), gosx.El("div", gosx.Attrs(gosx.Attr("class", "prompt-icon")), gosx.Text("↗")), gosx.El("input", gosx.Attrs(gosx.Attr("name", "prompt"), gosx.Attr("placeholder", "Steer the agent…"), gosx.Attr("autocomplete", "off"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("class", "prompt-button"), gosx.Attr("type", "submit")), gosx.Text("Send"))),
 			renderObservabilityWithOptions(cell, nil, csrfToken, true),
 		)
 	}
@@ -108,7 +108,7 @@ func renderSidebar(state model.State, selected *model.CellSnapshot, csrfToken st
 			gosx.El("div", gosx.Attrs(gosx.Attr("class", "cell-runtime")), gosx.Text(string(cell.Sandbox.Phase)+" · "+containmentLabel(cell)+" · rung "+defaultText(cell.Sandbox.Enforcement, "unarmed"))),
 		}
 		if cell.Status != model.CellStopped {
-			children = append(children, actionForm(csrfToken, "destroy-cell", "cell-stop", hidden("cellID", cell.ID), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Stop cell"))))
+			children = append(children, actionForm(csrfToken, "destroy-cell", "cell-stop", hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Stop cell"))))
 		}
 		cards = append(cards, gosx.El("article", gosx.Attrs(gosx.Attr("class", className)), gosx.Fragment(children...)))
 	}
@@ -166,7 +166,7 @@ func renderEditor(cell *model.CellSnapshot, file *model.File, csrfToken string, 
 		FormAction:       actionBase + editorAction(file.Path),
 		AutoSaveURL:      actionBase + editorAction(file.Path),
 		CSRFToken:        csrfToken,
-		ExtraFields:      map[string]string{"cellID": cell.ID, "path": file.Path},
+		ExtraFields:      map[string]string{"cellID": cell.ID, "path": file.Path, "capability": cell.OperatorCapability},
 		Buttons:          []gosxeditor.FormButton{{Name: "editor_action", Value: "save", Label: editorSubmitLabel(file.Path), Class: "save-button"}},
 		Collaboration:    &gosxeditor.Collaboration{HubURL: "/gosx/hub/cells?cellID=" + url.QueryEscape(cell.ID), CapabilityURL: "/api/cells/" + url.PathEscape(cell.ID) + "/capability", CellID: cell.ID, Path: file.Path, BinarySplices: true},
 		CodeIntelligence: editorIntelligence(cell.ID, file.Language),
@@ -175,15 +175,15 @@ func renderEditor(cell *model.CellSnapshot, file *model.File, csrfToken string, 
 		gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-meta")), gosx.El("div", gosx.El("span", gosx.Attrs(gosx.Attr("class", "file-icon")), gosx.Text("▧")), gosx.El("strong", gosx.Text(file.Path)), gosx.El("span", gosx.Attrs(gosx.Attr("class", "muted")), gosx.Text(file.Language)))),
 		codeEditor.Render(),
 		gosx.El("div", gosx.Attrs(gosx.Attr("class", "buffer-actions")),
-			actionForm(csrfToken, "undo-edit", "buffer-action", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Undo my edit"))),
-			actionForm(csrfToken, "revert-agent-edit", "buffer-action", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Revert agent edit"))),
-			actionForm(csrfToken, "delete-file", "delete-file-form", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("class", "delete-button"), gosx.Attr("type", "submit")), gosx.Text("Delete file"))),
+			actionForm(csrfToken, "undo-edit", "buffer-action", hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Undo my edit"))),
+			actionForm(csrfToken, "revert-agent-edit", "buffer-action", hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Revert agent edit"))),
+			actionForm(csrfToken, "delete-file", "delete-file-form", hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), hidden("path", file.Path), gosx.El("button", gosx.Attrs(gosx.Attr("class", "delete-button"), gosx.Attr("type", "submit")), gosx.Text("Delete file"))),
 		),
 	}
 	if file.Path == "policy/sandbox.yaml" && policyPreview != nil {
-		mainChildren = append(mainChildren, renderPolicyImpact(cell.ID, file, *policyPreview, csrfToken))
+		mainChildren = append(mainChildren, renderPolicyImpact(cell.ID, cell.OperatorCapability, file, *policyPreview, csrfToken))
 	}
-	mainChildren = append(mainChildren, actionForm(csrfToken, "prompt", "prompt-bar", hidden("cellID", cell.ID), hidden("path", file.Path), gosx.El("div", gosx.Attrs(gosx.Attr("class", "prompt-icon")), gosx.Text("↗")), gosx.El("input", gosx.Attrs(gosx.Attr("name", "prompt"), gosx.Attr("placeholder", "Steer the agent in this cell…"), gosx.Attr("autocomplete", "off"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("class", "prompt-button"), gosx.Attr("type", "submit")), gosx.Text("Send prompt"))))
+	mainChildren = append(mainChildren, actionForm(csrfToken, "prompt", "prompt-bar", hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), hidden("path", file.Path), gosx.El("div", gosx.Attrs(gosx.Attr("class", "prompt-icon")), gosx.Text("↗")), gosx.El("input", gosx.Attrs(gosx.Attr("name", "prompt"), gosx.Attr("placeholder", "Steer the agent in this cell…"), gosx.Attr("autocomplete", "off"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("class", "prompt-button"), gosx.Attr("type", "submit")), gosx.Text("Send prompt"))))
 	return gosx.El("section", gosx.Attrs(gosx.Attr("class", "editor-column"), gosx.Attr("data-gosx-code-surface", "true"), gosx.Attr("data-language", file.Language)),
 		gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-toolbar")), gosx.El("div", gosx.Attrs(gosx.Attr("class", "file-tabs")), gosx.Fragment(tabs...)), gosx.El("span", gosx.Attrs(gosx.Attr("class", "revision")), gosx.Text(fmt.Sprintf("rev %d", cell.Revision)))),
 		gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-workbench")),
@@ -193,7 +193,7 @@ func renderEditor(cell *model.CellSnapshot, file *model.File, csrfToken string, 
 	)
 }
 
-func renderPolicyImpact(cellID string, file *model.File, preview policy.PreviewResult, csrfToken string) gosx.Node {
+func renderPolicyImpact(cellID, capability string, file *model.File, preview policy.PreviewResult, csrfToken string) gosx.Node {
 	children := []gosx.Node{gosx.El("div", gosx.Attrs(gosx.Attr("class", "section-heading")), gosx.Text("POLICY IMPACT PREVIEW")), gosx.El("p", gosx.Text(preview.Before.Profile+" → "+preview.After.Profile+" · static EPS diff + recorded kernel replay"))}
 	for _, class := range preview.Classes {
 		children = append(children, gosx.El("div", gosx.Attrs(gosx.Attr("class", "policy-class-impact")),
@@ -213,7 +213,7 @@ func renderPolicyImpact(cellID string, file *model.File, preview policy.PreviewR
 			children = append(children, gosx.El("div", gosx.Attrs(gosx.Attr("class", "policy-replay-impact"), gosx.Attr("data-direction", flip.Direction)), gosx.Text(fmt.Sprintf("%s · %s · %s → %s", strings.ToUpper(flip.Direction), flip.Action, flip.BeforeVerdict, flip.AfterVerdict))))
 		}
 	}
-	children = append(children, actionForm(csrfToken, "apply-policy", "apply-policy", hidden("cellID", cellID), hidden("path", file.Path), hidden("content", file.Content), gosx.El("button", gosx.Attrs(gosx.Attr("class", "approve-button"), gosx.Attr("type", "submit")), gosx.Text("Apply reviewed policy & re-arm"))))
+	children = append(children, actionForm(csrfToken, "apply-policy", "apply-policy", hidden("cellID", cellID), hidden("capability", capability), hidden("path", file.Path), hidden("content", file.Content), gosx.El("button", gosx.Attrs(gosx.Attr("class", "approve-button"), gosx.Attr("type", "submit")), gosx.Text("Apply reviewed policy & re-arm"))))
 	return gosx.El("section", gosx.Attrs(gosx.Attr("class", "policy-impact"), gosx.Attr("aria-label", "Policy impact preview")), gosx.Fragment(children...))
 }
 
@@ -352,7 +352,7 @@ func renderObservabilityWithOptions(cell *model.CellSnapshot, file *model.File, 
 	children = append(children, eventFeed(cell.Events, model.EventIntent, "AGENT REPORTED / INTENT", defaultText(cell.Agent.ID, "agent")+" · untrusted claims"), eventFeed(cell.Events, model.EventKernel, "KERNEL / HORIZON", "trusted observations · loss-accounted"), renderReview(cell, path, csrfToken))
 	for _, request := range cell.SecretRequests {
 		if request.Status == "pending" {
-			children = append(children, actionForm(csrfToken, "approve-secret-grant", "secret-ask-human", hidden("cellID", cell.ID), hidden("requestID", request.ID), hidden("path", path), gosx.El("strong", gosx.Text("Credential approval required")), gosx.El("span", gosx.Text(request.Credential+" · "+request.Purpose)), gosx.El("code", gosx.Text(strings.Join(request.Command, " "))), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit"), gosx.Attr("class", "approve-button")), gosx.Text("Approve Tier-2 grant"))))
+			children = append(children, actionForm(csrfToken, "approve-secret-grant", "secret-ask-human", hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), hidden("requestID", request.ID), hidden("path", path), gosx.El("strong", gosx.Text("Credential approval required")), gosx.El("span", gosx.Text(request.Credential+" · "+request.Purpose)), gosx.El("code", gosx.Text(strings.Join(request.Command, " "))), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit"), gosx.Attr("class", "approve-button")), gosx.Text("Approve Tier-2 grant"))))
 		}
 	}
 	for _, request := range cell.ActionApprovals {
@@ -360,7 +360,7 @@ func renderObservabilityWithOptions(cell *model.CellSnapshot, file *model.File, 
 			continue
 		}
 		children = append(children, actionForm(csrfToken, "decide-action", "kernel-ask-human",
-			hidden("cellID", cell.ID), hidden("requestID", request.ID), hidden("path", path),
+			hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), hidden("requestID", request.ID), hidden("path", path),
 			gosx.El("strong", gosx.Text("Kernel action blocked for approval")),
 			gosx.El("span", gosx.Text(request.Kind+" · pid "+fmt.Sprint(request.PID)+" · "+request.NodeID)),
 			gosx.El("code", gosx.Text(defaultText(request.Resource, "resource unavailable"))),
@@ -372,9 +372,9 @@ func renderObservabilityWithOptions(cell *model.CellSnapshot, file *model.File, 
 		shadowChildren := []gosx.Node{gosx.El("strong", gosx.Text("Shadow Revision · "+shadow.Author)), gosx.El("code", gosx.Text(shadow.URI)), gosx.El("span", gosx.Text(shadow.Path+" · "+shadow.Reason)), gosx.El("span", gosx.Text("status: "+shadow.Status)), gosx.El("span", gosx.Text("conflicts: "+strings.Join(shadow.Conflicts, ", "))), gosx.El("details", gosx.El("summary", gosx.Text("View before / after")), gosx.El("div", gosx.Attrs(gosx.Attr("class", "shadow-diff")), gosx.El("pre", gosx.Text(shadow.Before)), gosx.El("pre", gosx.Text(shadow.After))))}
 		if shadow.Status == "open" {
 			if mobile {
-				shadowChildren = append(shadowChildren, actionForm(csrfToken, "adopt-shadow", "shadow-action", hidden("cellID", cell.ID), hidden("shadowID", shadow.ID), hidden("path", path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Adopt agent version"))))
+				shadowChildren = append(shadowChildren, actionForm(csrfToken, "adopt-shadow", "shadow-action", hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), hidden("shadowID", shadow.ID), hidden("path", path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Adopt agent version"))))
 			} else {
-				shadowChildren = append(shadowChildren, actionForm(csrfToken, "merge-shadow", "shadow-action", hidden("cellID", cell.ID), hidden("shadowID", shadow.ID), hidden("path", path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Structural merge"))), actionForm(csrfToken, "adopt-shadow", "shadow-action", hidden("cellID", cell.ID), hidden("shadowID", shadow.ID), hidden("path", path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Adopt agent version"))), actionForm(csrfToken, "discard-shadow", "shadow-action", hidden("cellID", cell.ID), hidden("shadowID", shadow.ID), hidden("path", path), gosx.El("input", gosx.Attrs(gosx.Attr("name", "reason"), gosx.Attr("placeholder", "Required discard reason"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Discard with receipt"))))
+				shadowChildren = append(shadowChildren, actionForm(csrfToken, "merge-shadow", "shadow-action", hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), hidden("shadowID", shadow.ID), hidden("path", path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Structural merge"))), actionForm(csrfToken, "adopt-shadow", "shadow-action", hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), hidden("shadowID", shadow.ID), hidden("path", path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Adopt agent version"))), actionForm(csrfToken, "discard-shadow", "shadow-action", hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), hidden("shadowID", shadow.ID), hidden("path", path), gosx.El("input", gosx.Attrs(gosx.Attr("name", "reason"), gosx.Attr("placeholder", "Required discard reason"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Discard with receipt"))))
 			}
 		}
 		children = append(children, gosx.El("section", gosx.Attrs(gosx.Attr("class", "shadow-card")), gosx.Fragment(shadowChildren...)))
@@ -443,11 +443,11 @@ func renderReview(cell *model.CellSnapshot, path, csrfToken string) gosx.Node {
 		children = append(children, gosx.El("div", gosx.Attrs(gosx.Attr("class", "secret-finding")), gosx.Text("Critical secret finding · "+finding.Kind+" · "+finding.Redacted)))
 	}
 	if review.CommitReady {
-		children = append(children, actionForm(csrfToken, "approve-review", "approve-review", hidden("cellID", cell.ID), hidden("reviewID", review.ID), hidden("path", path), gosx.El("button", gosx.Attrs(gosx.Attr("class", "approve-button"), gosx.Attr("type", "submit")), gosx.Text("Approve entity diff"))))
+		children = append(children, actionForm(csrfToken, "approve-review", "approve-review", hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), hidden("reviewID", review.ID), hidden("path", path), gosx.El("button", gosx.Attrs(gosx.Attr("class", "approve-button"), gosx.Attr("type", "submit")), gosx.Text("Approve entity diff"))))
 	} else {
-		children = append(children, actionForm(csrfToken, "acknowledge-review", "acknowledge-review", hidden("cellID", cell.ID), hidden("reviewID", review.ID), hidden("path", path), gosx.El("label", gosx.El("input", gosx.Attrs(gosx.Attr("type", "checkbox"), gosx.Attr("name", "ackSecret"))), gosx.Text(" Acknowledge secret finding")), gosx.El("label", gosx.El("input", gosx.Attrs(gosx.Attr("type", "checkbox"), gosx.Attr("name", "ackEvidence"))), gosx.Text(" Acknowledge degraded evidence")), gosx.El("input", gosx.Attrs(gosx.Attr("name", "reason"), gosx.Attr("placeholder", "Required acknowledgment reason"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Acknowledge risk"))))
+		children = append(children, actionForm(csrfToken, "acknowledge-review", "acknowledge-review", hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), hidden("reviewID", review.ID), hidden("path", path), gosx.El("label", gosx.El("input", gosx.Attrs(gosx.Attr("type", "checkbox"), gosx.Attr("name", "ackSecret"))), gosx.Text(" Acknowledge secret finding")), gosx.El("label", gosx.El("input", gosx.Attrs(gosx.Attr("type", "checkbox"), gosx.Attr("name", "ackEvidence"))), gosx.Text(" Acknowledge degraded evidence")), gosx.El("input", gosx.Attrs(gosx.Attr("name", "reason"), gosx.Attr("placeholder", "Required acknowledgment reason"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Acknowledge risk"))))
 	}
-	children = append(children, actionForm(csrfToken, "reject-review", "reject-review", hidden("cellID", cell.ID), hidden("reviewID", review.ID), hidden("path", path), gosx.El("input", gosx.Attrs(gosx.Attr("name", "reason"), gosx.Attr("placeholder", "Required rejection reason"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit"), gosx.Attr("class", "delete-button")), gosx.Text("Reject and send feedback"))))
+	children = append(children, actionForm(csrfToken, "reject-review", "reject-review", hidden("cellID", cell.ID), hidden("capability", cell.OperatorCapability), hidden("reviewID", review.ID), hidden("path", path), gosx.El("input", gosx.Attrs(gosx.Attr("name", "reason"), gosx.Attr("placeholder", "Required rejection reason"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit"), gosx.Attr("class", "delete-button")), gosx.Text("Reject and send feedback"))))
 	return gosx.El("div", gosx.Attrs(gosx.Attr("class", "review-card")), gosx.Fragment(children...))
 }
 

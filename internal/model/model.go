@@ -283,7 +283,8 @@ type Cell struct {
 
 type CellSnapshot struct {
 	Cell
-	Events []Event `json:"events"`
+	Events             []Event `json:"events"`
+	OperatorCapability string  `json:"-"`
 }
 
 type State struct {

@@ -23,6 +23,7 @@ import (
 	"m31labs.dev/mercutio/internal/auth"
 	"m31labs.dev/mercutio/internal/cell"
 	"m31labs.dev/mercutio/internal/evidence"
+	"m31labs.dev/mercutio/internal/model"
 	"m31labs.dev/mercutio/internal/policy"
 	"m31labs.dev/mercutio/internal/review"
 	"m31labs.dev/mercutio/internal/sandbox"
@@ -112,8 +113,9 @@ func main() {
 	app.HandlePage(server.PageRoute{Pattern: "GET /", Middleware: []server.Middleware{server.Middleware(authn.Require)}, Handler: func(ctx *server.Context) gosx.Node {
 		cellID := ctx.Request.URL.Query().Get("cell")
 		path := ctx.Request.URL.Query().Get("file")
+		state := operatorViewState(store, cellHub.ClientCount())
 		if mobileShellRequest(ctx.Request) {
-			return view.MobilePage(store.State(cellHub.ClientCount()), cellID, authn.CSRFToken(ctx.Request))
+			return view.MobilePage(state, cellID, authn.CSRFToken(ctx.Request))
 		}
 		var preview *policy.PreviewResult
 		if path == "policy/sandbox.yaml" && ctx.Request.URL.Query().Get("policyPreview") == "1" {
@@ -123,7 +125,7 @@ func main() {
 				}
 			}
 		}
-		return view.PageWithPolicyPreview(store.State(cellHub.ClientCount()), cellID, path, authn.CSRFToken(ctx.Request), preview)
+		return view.PageWithPolicyPreview(state, cellID, path, authn.CSRFToken(ctx.Request), preview)
 	}})
 	app.Mount("POST /gosx/action/{name}", operatorMutation(browserActions))
 
@@ -198,6 +200,17 @@ func main() {
 	if err := app.ListenAndServe(addr); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func operatorViewState(store *cell.Store, connected int) model.State {
+	state := store.State(connected)
+	for i := range state.Cells {
+		token, err := store.MintOperatorCapability(state.Cells[i].ID, "operator")
+		if err == nil {
+			state.Cells[i].OperatorCapability = token
+		}
+	}
+	return state
 }
 
 func mobileShellRequest(request *http.Request) bool {

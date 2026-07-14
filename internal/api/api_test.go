@@ -223,10 +223,30 @@ func TestCreateAndEditAPI(t *testing.T) {
 	}
 
 	editRequest := httptest.NewRequest("POST", "/api/cells/"+created.ID+"/edit", strings.NewReader(`{"path":"README.md","content":"updated"}`))
+	capability, err := store.MintOperatorCapability(created.ID, "operator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	editRequest.Header.Set("X-Mercutio-Capability", capability)
 	editResponse := httptest.NewRecorder()
 	handler.Edit(editResponse, editRequest)
 	if editResponse.Code != 200 || !strings.Contains(editResponse.Body.String(), "updated") {
 		t.Fatalf("edit response = %d, body=%s", editResponse.Code, editResponse.Body.String())
+	}
+}
+
+func TestCellAPIsRejectSessionOnlyAccess(t *testing.T) {
+	store := cell.NewStore()
+	handler := New(store, transport.NewCellHub(store))
+	read := httptest.NewRecorder()
+	handler.Cell(read, httptest.NewRequest(http.MethodGet, "/api/cells/cell-demo", nil))
+	if read.Code != http.StatusForbidden {
+		t.Fatalf("session-only cell read=%d %s", read.Code, read.Body.String())
+	}
+	edit := httptest.NewRecorder()
+	handler.Edit(edit, httptest.NewRequest(http.MethodPost, "/api/cells/cell-demo/edit", strings.NewReader(`{"path":"README.md","content":"unauthorized"}`)))
+	if edit.Code != http.StatusForbidden {
+		t.Fatalf("session-only cell edit=%d %s", edit.Code, edit.Body.String())
 	}
 }
 
