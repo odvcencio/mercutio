@@ -163,11 +163,7 @@ func (r *MemoryRuntime) Rearm(_ context.Context, spec Spec) (Pod, error) {
 func (r *MemoryRuntime) Delete(_ context.Context, cellID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if pod, ok := r.pods[cellID]; ok {
-		pod.Phase = PhaseStopped
-		pod.LastTransition = time.Now().UTC()
-		r.pods[cellID] = pod
-	}
+	delete(r.pods, cellID)
 	return nil
 }
 

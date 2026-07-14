@@ -469,6 +469,10 @@ func (h *CellHub) handleBrowserSplice(client *hub.Client, data []byte) {
 }
 
 func (h *CellHub) configureBinaryAuthorization(target *hub.Hub) {
+	target.SetBinaryReadAuthorizer(func(client *hub.Client, docName string) bool {
+		cellID, _ := client.Metadata("cellID")
+		return metadataPermission(client, "doc:read") && strings.HasPrefix(docName, cellID+":")
+	})
 	target.SetBinaryAuthorizer(func(client *hub.Client, docName string) bool {
 		cellID, _ := client.Metadata("cellID")
 		return metadataPermission(client, "doc:write") && strings.HasPrefix(docName, cellID+":")
@@ -585,6 +589,13 @@ func (h *CellHub) AgentClient(cellID string) string {
 // Store teardown owns the durable lifecycle state; this method owns the
 // realtime connection and prevents a stopped agent from sending more work.
 func (h *CellHub) DisconnectCell(cellID, reason string) bool {
+	if snapshot, err := h.store.Snapshot(cellID); err == nil {
+		for _, file := range snapshot.Files {
+			name := cellID + ":" + file.Path
+			h.Hub.UnsyncDoc(name)
+			h.agentHub.UnsyncDoc(name)
+		}
+	}
 	clientID := h.AgentClient(cellID)
 	if clientID == "" {
 		return false

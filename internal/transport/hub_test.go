@@ -273,6 +273,83 @@ func TestBrowserBinarySpliceIsActorBoundAndAppliedToCRDT(t *testing.T) {
 	}
 }
 
+func TestBrowserReceivesOnlyItsCellCRDTDocuments(t *testing.T) {
+	store := cell.NewStore()
+	other, err := store.Create("https://github.com/example/other", "main", "standard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewCellHub(store)
+	h.RegisterCell(other.ID)
+	server := httptest.NewServer(http.HandlerFunc(h.ServeHTTP))
+	defer server.Close()
+	token, err := store.MintOperatorCapability("cell-demo", "operator-browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"?cellID=cell-demo&capability="+token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	demo, err := store.Snapshot("cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binaryFrames := 0
+	for {
+		_ = connection.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		messageType, _, err := connection.ReadMessage()
+		if err != nil {
+			break
+		}
+		if messageType == websocket.BinaryMessage {
+			binaryFrames++
+		}
+	}
+	if binaryFrames != len(demo.Files) {
+		t.Fatalf("binary bootstrap frames=%d, want exactly %d authorized documents", binaryFrames, len(demo.Files))
+	}
+}
+
+func TestDestroyedCellReleasesHubDocuments(t *testing.T) {
+	store := cell.NewStore()
+	created, err := store.Create("https://github.com/example/temporary", "main", "standard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewCellHub(store)
+	token, err := store.MintOperatorCapability(created.ID, "operator-browser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Destroy(created.ID); err != nil {
+		t.Fatal(err)
+	}
+	h.DisconnectCell(created.ID, "destroyed")
+	server := httptest.NewServer(http.HandlerFunc(h.ServeHTTP))
+	defer server.Close()
+	connection, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"?cellID="+created.ID+"&capability="+token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	binaryFrames := 0
+	for {
+		_ = connection.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		messageType, _, err := connection.ReadMessage()
+		if err != nil {
+			break
+		}
+		if messageType == websocket.BinaryMessage {
+			binaryFrames++
+		}
+	}
+	if binaryFrames != 0 {
+		t.Fatalf("destroyed cell retained %d CRDT sync documents", binaryFrames)
+	}
+}
+
 func TestDisconnectCellRevokesAttachTransport(t *testing.T) {
 	store := cell.NewStore()
 	h := NewCellHub(store)

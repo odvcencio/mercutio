@@ -26,13 +26,37 @@ func TestGarbageCollectRemovesOrphansAndRetainsLiveCells(t *testing.T) {
 	if len(removed) != 1 || removed[0] != "orphan" {
 		t.Fatalf("removed = %v", removed)
 	}
-	orphan, err := runtime.Observe(context.Background(), "orphan")
-	if err != nil || orphan.Phase != sandbox.PhaseStopped {
-		t.Fatalf("orphan = %+v, %v", orphan, err)
+	if _, err := runtime.Observe(context.Background(), "orphan"); err != sandbox.ErrNotFound {
+		t.Fatalf("orphan remained after garbage collection: %v", err)
 	}
 	live, err := runtime.Observe(context.Background(), "cell-demo")
 	if err != nil || live.Phase != sandbox.PhaseRunning {
 		t.Fatalf("live = %+v, %v", live, err)
+	}
+}
+
+func TestTwentyCreateDestroyCyclesReleaseLiveState(t *testing.T) {
+	runtime := sandbox.NewMemoryRuntime()
+	store := NewStoreWithOptions(Options{Runtime: runtime})
+	for cycle := 0; cycle < 20; cycle++ {
+		created, err := store.Create("https://github.com/example/churn", "main", "standard")
+		if err != nil {
+			t.Fatalf("cycle %d create: %v", cycle, err)
+		}
+		if _, err := store.Destroy(created.ID); err != nil {
+			t.Fatalf("cycle %d destroy: %v", cycle, err)
+		}
+		store.mu.RLock()
+		record := store.cells[created.ID]
+		liveDocs, history, writers := len(record.docs), len(record.history), len(record.writers)
+		store.mu.RUnlock()
+		if liveDocs != 0 || history != 0 || writers != 0 {
+			t.Fatalf("cycle %d retained docs=%d history=%d writers=%d", cycle, liveDocs, history, writers)
+		}
+	}
+	pods, err := runtime.Managed(context.Background())
+	if err != nil || len(pods) != 1 || pods[0].CellID != "cell-demo" {
+		t.Fatalf("managed pods after churn=%d err=%v", len(pods), err)
 	}
 }
 

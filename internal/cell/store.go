@@ -321,6 +321,12 @@ func (s *Store) Destroy(id string) (model.CellSnapshot, error) {
 	r.cell.UpdatedAt = now
 	r.cell.Revision++
 	s.appendEventLocked(r, model.Event{Kind: model.EventLifecycle, Source: "operator", Action: "cell.destroy", Summary: "Sandbox cell stopped", Detail: "The control plane released the cell; the worktree remains reviewable.", Danger: "high", Timestamp: now})
+	r.docs = nil
+	r.history = nil
+	r.writers = nil
+	r.attachToken = ""
+	r.armToken = ""
+	_ = s.persistLocked()
 	return snapshotLocked(r), nil
 }
 
@@ -1541,6 +1547,9 @@ func (s *Store) Attach(id, token, agentID, name string) (model.CellSnapshot, err
 	r, ok := s.cells[id]
 	if !ok {
 		return model.CellSnapshot{}, fmt.Errorf("cell %q not found", id)
+	}
+	if r.cell.Status == model.CellStopped {
+		return model.CellSnapshot{}, fmt.Errorf("cell %q is stopped", id)
 	}
 	if agentID == "" {
 		agentID = "agent-" + id

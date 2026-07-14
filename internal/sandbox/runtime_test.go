@@ -22,9 +22,8 @@ func TestMemoryRuntimeLifecycle(t *testing.T) {
 	if err := runtime.Delete(context.Background(), spec.CellID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	pod, err = runtime.Observe(context.Background(), spec.CellID)
-	if err != nil || pod.Phase != PhaseStopped {
-		t.Fatalf("Observe = %+v, %v", pod, err)
+	if _, err = runtime.Observe(context.Background(), spec.CellID); err != ErrNotFound {
+		t.Fatalf("deleted pod remained observable: %v", err)
 	}
 }
 
