@@ -2506,7 +2506,37 @@ func syncWorktreeFile(root, cellID, path, content string) error {
 	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(destination, []byte(content), 0o644)
+	directory := filepath.Dir(destination)
+	temp, err := os.CreateTemp(directory, ".mercutio-write-*")
+	if err != nil {
+		return err
+	}
+	tempName := temp.Name()
+	defer os.Remove(tempName)
+	if err = temp.Chmod(0o644); err != nil {
+		temp.Close()
+		return err
+	}
+	if _, err = temp.Write([]byte(content)); err != nil {
+		temp.Close()
+		return err
+	}
+	if err = temp.Sync(); err != nil {
+		temp.Close()
+		return err
+	}
+	if err = temp.Close(); err != nil {
+		return err
+	}
+	if err = os.Rename(tempName, destination); err != nil {
+		return err
+	}
+	dir, err := os.Open(directory)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 
 func removeWorktreeFile(root, cellID, path string) error {

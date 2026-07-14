@@ -2,16 +2,48 @@ package cell
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"m31labs.dev/mercutio/internal/evidence"
-	"time"
 
 	"m31labs.dev/mercutio/internal/model"
 	"m31labs.dev/mercutio/internal/sandbox"
 )
+
+func TestSyncWorktreeFileAtomicallyReplacesDestination(t *testing.T) {
+	root := t.TempDir()
+	path := "cmd/main.go"
+	if err := syncWorktreeFile(root, "cell-1", path, "old content"); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(root, "cell-1", path)
+	before, err := os.Stat(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = syncWorktreeFile(root, "cell-1", path, "new content"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.SameFile(before, after) {
+		t.Fatal("materialization rewrote the destination inode instead of replacing it atomically")
+	}
+	content, err := os.ReadFile(destination)
+	if err != nil || string(content) != "new content" {
+		t.Fatalf("content=%q err=%v", content, err)
+	}
+	temps, err := filepath.Glob(filepath.Join(filepath.Dir(destination), ".mercutio-write-*"))
+	if err != nil || len(temps) != 0 {
+		t.Fatalf("temporary files=%v err=%v", temps, err)
+	}
+}
 
 func TestGarbageCollectRemovesOrphansAndRetainsLiveCells(t *testing.T) {
 	runtime := sandbox.NewMemoryRuntime()
