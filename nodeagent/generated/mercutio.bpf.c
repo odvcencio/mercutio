@@ -400,6 +400,13 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 4096);
+    __type(key, struct hzn_type_InterpreterKey);
+    __type(value, struct hzn_type_InterpreterGrantVal);
+} ToolchainGrant SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 65536);
     __type(key, struct hzn_type_FileKey);
     __type(value, struct hzn_type_FileRule);
@@ -458,6 +465,18 @@ static __always_inline long InterpreterGrant_update(struct hzn_type_InterpreterK
 
 static __always_inline long InterpreterGrant_delete(struct hzn_type_InterpreterKey key) {
     return bpf_map_delete_elem(&InterpreterGrant, &key);
+}
+
+static __always_inline struct hzn_type_InterpreterGrantVal *ToolchainGrant_lookup(struct hzn_type_InterpreterKey key) {
+    return bpf_map_lookup_elem(&ToolchainGrant, &key);
+}
+
+static __always_inline long ToolchainGrant_update(struct hzn_type_InterpreterKey key, struct hzn_type_InterpreterGrantVal value) {
+    return bpf_map_update_elem(&ToolchainGrant, &key, &value, BPF_ANY);
+}
+
+static __always_inline long ToolchainGrant_delete(struct hzn_type_InterpreterKey key) {
+    return bpf_map_delete_elem(&ToolchainGrant, &key);
 }
 
 static __always_inline struct hzn_type_FileRule *FileRules_lookup(struct hzn_type_FileKey key) {
@@ -584,6 +603,26 @@ int GateExec(void *ctx) {
                                 verdict = 1;
                             }
                         }
+                    } else {
+                        if (exec_rule->verdict == 5) {
+                            verdict = 0;
+                            if (ToolchainGrant_update(interpreter_key, (struct hzn_type_InterpreterGrantVal){ .expires_ns = hzn_ktime_get_ns() + (__u64)(600000000000) }) != 0) {
+                                verdict = 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if ((verdict == 1) && ((exec_dev == scope->fs_dev) || (exec_dev == scope->scratch_dev))) {
+            struct hzn_type_InterpreterKey toolchain_key = (struct hzn_type_InterpreterKey){ .cgroup_id = cgroup_id, .pid = hzn_current_ppid() };
+            struct hzn_type_InterpreterGrantVal *toolchain_grant = ToolchainGrant_lookup(toolchain_key);
+            if (toolchain_grant != 0) {
+                if (toolchain_grant->expires_ns >= hzn_ktime_get_ns()) {
+                    verdict = 0;
+                } else {
+                    if (ToolchainGrant_delete(toolchain_key) != 0) {
+                        verdict = 1;
                     }
                 }
             }

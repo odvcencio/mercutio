@@ -22,5 +22,5 @@ jobs:
         with:
           go-version-file: nodeagent/go.mod
           cache: true
-      - name: Load, attach, and prove strict denial
+      - name: Prove strict enforcement and toolchain execution
         run: sudo --preserve-env=PATH,HOME,GOCACHE,GOMODCACHE ./scripts/kernel-integration.sh

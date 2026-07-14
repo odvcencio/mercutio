@@ -13,14 +13,15 @@ import (
 )
 
 const (
-	execAllow            = uint32(1)
-	execDeny             = uint32(2)
-	execAllowInterpreter = uint32(3)
-	execInterpreter      = uint32(4)
+	execAllow             = uint32(1)
+	execDeny              = uint32(2)
+	execAllowInterpreter  = uint32(3)
+	execInterpreter       = uint32(4)
+	execToolchainLauncher = uint32(5)
 )
 
 var strictExecPaths = []string{
-	"/usr/local/go/bin/go", "/usr/bin/go", "/usr/bin/cargo",
+	"/usr/bin/cargo",
 	"/usr/bin/git", "/usr/bin/graft", "/usr/bin/buckley", "/usr/local/bin/graft", "/usr/local/bin/buckley",
 	"/bin/cat", "/bin/cp", "/bin/cut", "/bin/date", "/bin/echo", "/bin/env", "/bin/find", "/bin/grep",
 	"/bin/head", "/bin/ls", "/bin/mkdir", "/bin/mv", "/bin/pwd", "/bin/rm", "/bin/sed", "/bin/sort",
@@ -29,6 +30,22 @@ var strictExecPaths = []string{
 	"/usr/bin/find", "/usr/bin/grep", "/usr/bin/head", "/usr/bin/ls", "/usr/bin/mkdir", "/usr/bin/mv",
 	"/usr/bin/pwd", "/usr/bin/rm", "/usr/bin/sed", "/usr/bin/sort", "/usr/bin/tail", "/usr/bin/tar",
 	"/usr/bin/touch", "/usr/bin/tr", "/usr/bin/uniq", "/usr/bin/wc",
+}
+
+var strictToolchainLauncherPaths = []string{
+	"/usr/local/go/bin/go", "/usr/bin/go",
+}
+
+var strictToolchainLauncherPatterns = []string{
+	"/usr/lib/go-*/bin/go", "/opt/hostedtoolcache/go/*/*/bin/go",
+}
+
+var strictToolchainTrees = []string{
+	"/usr/local/go/pkg/tool", "/usr/lib/go/pkg/tool",
+}
+
+var strictToolchainTreePatterns = []string{
+	"/usr/lib/go-*/pkg/tool", "/opt/hostedtoolcache/go/*/*/pkg/tool",
 }
 
 var strictAgentPaths = []string{
@@ -70,6 +87,22 @@ func (m *ProgramManager) installExecRules(cell Cell, programs *classPrograms, cl
 		if class == 0 {
 			for _, path := range strictExecPaths {
 				addExecPath(rules, root, path, execAllow)
+			}
+			for _, path := range strictToolchainLauncherPaths {
+				addExecPath(rules, root, path, execToolchainLauncher)
+			}
+			for _, pattern := range strictToolchainLauncherPatterns {
+				for _, path := range rootedGlob(root, pattern) {
+					addExecFile(rules, path, execToolchainLauncher)
+				}
+			}
+			for _, path := range strictToolchainTrees {
+				addExecTreeRecursive(rules, root, path, execAllow)
+			}
+			for _, pattern := range strictToolchainTreePatterns {
+				for _, path := range rootedGlob(root, pattern) {
+					addExecTreeRecursiveResolved(rules, path, execAllow)
+				}
 			}
 			for _, path := range strictAgentPaths {
 				addStrictAgentPath(rules, root, path)
@@ -173,6 +206,24 @@ func addExecTree(rules map[bindings.ExecKey]uint32, root, path string, verdict u
 		}
 		return nil
 	})
+}
+
+func addExecTreeRecursive(rules map[bindings.ExecKey]uint32, root, path string, verdict uint32) {
+	addExecTreeRecursiveResolved(rules, filepath.Join(root, strings.TrimPrefix(path, "/")), verdict)
+}
+
+func addExecTreeRecursiveResolved(rules map[bindings.ExecKey]uint32, base string, verdict uint32) {
+	_ = filepath.WalkDir(base, func(item string, entry fs.DirEntry, err error) error {
+		if err == nil && !entry.IsDir() {
+			addExecFile(rules, item, verdict)
+		}
+		return nil
+	})
+}
+
+func rootedGlob(root, pattern string) []string {
+	matches, _ := filepath.Glob(filepath.Join(root, strings.TrimPrefix(pattern, "/")))
+	return matches
 }
 
 func addExecPath(rules map[bindings.ExecKey]uint32, root, path string, verdict uint32) {

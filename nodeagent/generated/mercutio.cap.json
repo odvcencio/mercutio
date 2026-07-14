@@ -242,10 +242,12 @@
           "CellScope",
           "ExecRules",
           "InterpreterGrant",
+          "ToolchainGrant",
           "ActionGrant"
         ],
         "write": [
-          "InterpreterGrant"
+          "InterpreterGrant",
+          "ToolchainGrant"
         ],
         "events": [
           "ExecEvents"
@@ -1085,6 +1087,13 @@
     },
     {
       "name": "InterpreterGrant",
+      "kind": "hash",
+      "key": "InterpreterKey",
+      "value": "InterpreterGrantVal",
+      "max_entries": "4096"
+    },
+    {
+      "name": "ToolchainGrant",
       "kind": "hash",
       "key": "InterpreterKey",
       "value": "InterpreterGrantVal",

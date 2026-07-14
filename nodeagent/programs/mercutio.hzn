@@ -131,6 +131,9 @@ map ExecRules hash[ExecKey, ExecRule]
 @max_entries(4096)
 map InterpreterGrant hash[InterpreterKey, InterpreterGrantVal]
 
+@max_entries(4096)
+map ToolchainGrant hash[InterpreterKey, InterpreterGrantVal]
+
 @max_entries(65536)
 map FileRules hash[FileKey, FileRule]
 
@@ -238,6 +241,24 @@ func GateExec(ctx lsm.Context) i32 {
                         verdict = 0
                     }
                     if InterpreterGrant.delete(interpreter_key) != 0 {
+                        verdict = 1
+                    }
+                }
+            } else if exec_rule.verdict == 5 {
+                verdict = 0
+                if ToolchainGrant.update(interpreter_key, InterpreterGrantVal{expires_ns: bpf.ktime_get_ns() + u64(600000000000)}) != 0 {
+                    verdict = 1
+                }
+            }
+        }
+        if verdict == 1 && (exec_dev == scope.fs_dev || exec_dev == scope.scratch_dev) {
+            toolchain_key := InterpreterKey{cgroup_id: cgroup_id, pid: bpf.current_ppid()}
+            toolchain_grant := ToolchainGrant.lookup(toolchain_key)
+            if toolchain_grant != nil {
+                if toolchain_grant.expires_ns >= bpf.ktime_get_ns() {
+                    verdict = 0
+                } else {
+                    if ToolchainGrant.delete(toolchain_key) != 0 {
                         verdict = 1
                     }
                 }

@@ -78,3 +78,42 @@ func TestStrictAgentScriptsReceiveSingleUseInterpreterGrant(t *testing.T) {
 		t.Fatalf("strict executable verdicts = %v", counts)
 	}
 }
+
+func TestStrictGoLauncherAndNestedToolsReceiveDistinctVerdicts(t *testing.T) {
+	root := t.TempDir()
+	launcher := filepath.Join(root, "usr/local/go/bin/go")
+	compiler := filepath.Join(root, "usr/local/go/pkg/tool/linux_amd64/compile")
+	for _, path := range []string{launcher, compiler} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("binary"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rules := map[bindings.ExecKey]uint32{}
+	addExecPath(rules, root, "/usr/local/go/bin/go", execToolchainLauncher)
+	addExecTreeRecursive(rules, root, "/usr/local/go/pkg/tool", execAllow)
+	counts := map[uint32]int{}
+	for _, verdict := range rules {
+		counts[verdict]++
+	}
+	if counts[execToolchainLauncher] != 1 || counts[execAllow] != 1 {
+		t.Fatalf("strict Go toolchain verdicts = %v", counts)
+	}
+}
+
+func TestRootedGlobFindsActionsToolcacheWithoutEscapingContainerRoot(t *testing.T) {
+	root := t.TempDir()
+	launcher := filepath.Join(root, "opt/hostedtoolcache/go/1.26.0/x64/bin/go")
+	if err := os.MkdirAll(filepath.Dir(launcher), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(launcher, []byte("binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	matches := rootedGlob(root, "/opt/hostedtoolcache/go/*/*/bin/go")
+	if len(matches) != 1 || matches[0] != launcher {
+		t.Fatalf("toolcache matches = %v", matches)
+	}
+}

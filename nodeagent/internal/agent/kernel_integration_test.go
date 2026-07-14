@@ -89,6 +89,7 @@ func TestKernelLoadsAttachesAndEnforcesStrictExec(t *testing.T) {
 	if _, err := manager.Arm(context.Background(), Cell{ID: "kernel-test", Profile: "strict", CgroupPath: cgroup, CgroupID: cgroupID, CgroupIDs: []uint64{cgroupID}, WorktreeDev: device, ScratchDev: device, RuntimeDev: device}); err != nil {
 		t.Fatalf("arm strict cgroup: %v", err)
 	}
+	assertStrictGoBuildAndTest(t, fd, workspace)
 	assertDeniedExecVisible(t, exec.Command(copyPath), fd, events, "kernel-test")
 	assertDeniedExecVisible(t, exec.Command("/usr/bin/python3", "-c", "pass"), fd, events, "kernel-test")
 	if err := manager.Disarm(context.Background(), "kernel-test"); err != nil {
@@ -120,6 +121,58 @@ func TestKernelLoadsAttachesAndEnforcesStrictExec(t *testing.T) {
 	}
 	if after.HeapAlloc > before.HeapAlloc+2*1024*1024 {
 		t.Fatalf("NodeAgent heap grew from %d to %d bytes after churn", before.HeapAlloc, after.HeapAlloc)
+	}
+}
+
+func assertStrictGoBuildAndTest(t *testing.T, cgroup *os.File, workspace string) {
+	t.Helper()
+	goBinary, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(workspace, "strict-go-project")
+	cache := filepath.Join(workspace, "go-cache")
+	tmp := filepath.Join(workspace, "tmp")
+	for _, path := range []string{project, cache, tmp} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		"go.mod":   "module example.invalid/strictproof\n\ngo 1.24\n",
+		"proof.go": "package strictproof\n\nfunc Add(a, b int) int { return a + b }\n",
+		"proof_test.go": `package strictproof
+
+import (
+	"os/exec"
+	"testing"
+)
+
+func TestGeneratedRunnerExecutesButCannotSpawnShell(t *testing.T) {
+	if Add(2, 3) != 5 {
+		t.Fatal("generated test runner did not execute")
+	}
+	if err := exec.Command("/bin/sh", "-c", "true").Run(); err == nil {
+		t.Fatal("generated test runner inherited toolchain execution authority")
+	}
+}
+`,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(project, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	environment := append(os.Environ(), "CGO_ENABLED=0", "GOTOOLCHAIN=local", "GOCACHE="+cache, "GOTMPDIR="+tmp, "TMPDIR="+tmp, "HOME="+workspace)
+	for _, arguments := range [][]string{{"build", "./..."}, {"test", "-count=1", "./..."}} {
+		command := exec.Command(goBinary, arguments...)
+		command.Dir = project
+		command.Env = environment
+		command.SysProcAttr = &syscall.SysProcAttr{UseCgroupFD: true, CgroupFD: int(cgroup.Fd())}
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("strict go %s: %v\n%s", arguments[0], err, output)
+		}
 	}
 }
 
@@ -192,7 +245,7 @@ func assertDeniedExecVisible(t *testing.T, command *exec.Cmd, cgroup *os.File, e
 	for {
 		select {
 		case event := <-events.events:
-			if event.CellID == cellID && event.Program == "GateExec" && event.Verdict == "deny" {
+			if event.CellID == cellID && event.Program == "GateExec" && event.Verdict == "deny" && event.Path == command.Path {
 				return
 			}
 		case <-deadline:
@@ -226,6 +279,9 @@ func assertKernelMapsEmpty(t *testing.T, manager *ProgramManager) {
 			t.Fatal(err)
 		}
 		if err := programs.objects.ForEachInterpreterGrant(func(bindings.InterpreterKey, bindings.InterpreterGrantVal) error { counts["interpreter"]++; return nil }); err != nil {
+			t.Fatal(err)
+		}
+		if err := programs.objects.ForEachToolchainGrant(func(bindings.InterpreterKey, bindings.InterpreterGrantVal) error { counts["toolchain"]++; return nil }); err != nil {
 			t.Fatal(err)
 		}
 		for name, count := range counts {
