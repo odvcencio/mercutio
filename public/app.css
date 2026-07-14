@@ -164,5 +164,17 @@ button { cursor: pointer; }
 .shadow-diff pre, .line-diff pre { overflow: auto; max-height: 260px; padding: 8px; background: #071421; }
 .evidence-warning { margin: 8px 0; padding: 8px; border: 1px solid rgba(240, 178, 91, .45); }
 
+.mobile-content { width: min(760px, 100%); margin: 0 auto; padding: 12px; }
+.mobile-fleet { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.mobile-cell-card { display: grid; gap: 5px; padding: 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--text); text-decoration: none; font: 10px/1.4 var(--mono); }
+.mobile-cell-card.active { border-color: var(--cyan); background: rgba(105, 214, 223, .09); }
+.mobile-cell-card span { color: var(--muted); }
+.mobile-cell-heading { display: flex; justify-content: space-between; gap: 8px; padding: 11px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); font: 11px var(--mono); }
+.mobile-cell-heading span { color: var(--muted); }
+.mobile-shell .observability { display: block; padding: 0; border: 0; background: transparent; }
+.mobile-shell .prompt-bar { margin: 12px 0; }
+.mobile-shell .topbar .ghost-button { display: none; }
+.mobile-shell .shadow-diff { grid-template-columns: 1fr; }
+
 @media (max-width: 1080px) { .workspace { grid-template-columns: 205px minmax(400px, 1fr); } .editor-workbench { grid-template-columns: 150px minmax(0, 1fr); } .observability { grid-column: 1 / -1; border-top: 1px solid var(--line); border-left: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 13px; } .obs-heading, .review-card, .divergence { grid-column: 1 / -1; } }
 @media (max-width: 700px) { .topbar { padding: 0 12px; } .eyebrow { display: none; } .workspace { display: block; } .sidebar { border-right: 0; border-bottom: 1px solid var(--line); } .cell-list { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); } .create-cell { display: none; } .editor-workbench { display: block; } .file-tree { max-height: 180px; border-right: 0; border-bottom: 1px solid var(--line); } .observability { display: block; } .topbar-right { font-size: 0; } .ghost-button { font-size: 10px; } }

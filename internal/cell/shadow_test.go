@@ -81,6 +81,24 @@ func TestAgentWriteShadowsWhileHumanActiveAndAdoptsWithReceipt(t *testing.T) {
 	}
 }
 
+func TestSnapshotRedactsSecretShapedShadowContent(t *testing.T) {
+	store := NewStore()
+	path := "cmd/hello/main.go"
+	if _, err := store.SetWriterActive("cell-demo", path, "operator", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApplyEdit("cell-demo", path, "package main\n// human\n", "operator"); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.ApplyEdit("cell-demo", path, "package main\n// ghp_abcdefghijklmnopqrstuvwxyz1234567890\n", "agent-cell-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Shadows) != 1 || strings.Contains(snapshot.Shadows[0].After, "ghp_") || !strings.Contains(strings.ToLower(snapshot.Shadows[0].After), "<redacted>") {
+		t.Fatalf("snapshot exposed secret-shaped shadow content: %+v", snapshot.Shadows)
+	}
+}
+
 func TestOpenBufferWithoutRecentHumanEditDoesNotRouteAgentToShadow(t *testing.T) {
 	store := NewStore()
 	path := "cmd/hello/main.go"

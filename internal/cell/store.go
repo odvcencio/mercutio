@@ -2147,6 +2147,8 @@ func snapshotLocked(r *record) model.CellSnapshot {
 	cell.Reviews = append([]model.Review(nil), r.cell.Reviews...)
 	cell.Shadows = append([]model.ShadowRevision(nil), r.cell.Shadows...)
 	for i := range cell.Shadows {
+		cell.Shadows[i].Before = secrets.RedactText(cell.Shadows[i].Before)
+		cell.Shadows[i].After = secrets.RedactText(cell.Shadows[i].After)
 		if cell.Shadows[i].URI == "" {
 			cell.Shadows[i].URI = shadowURI(cell.ID, cell.Shadows[i].Path, cell.Shadows[i].ID)
 		}

@@ -108,6 +108,9 @@ func main() {
 	app.HandlePage(server.PageRoute{Pattern: "GET /", Middleware: []server.Middleware{server.Middleware(authn.Require)}, Handler: func(ctx *server.Context) gosx.Node {
 		cellID := ctx.Request.URL.Query().Get("cell")
 		path := ctx.Request.URL.Query().Get("file")
+		if mobileShellRequest(ctx.Request) {
+			return view.MobilePage(store.State(cellHub.ClientCount()), cellID, authn.CSRFToken(ctx.Request))
+		}
 		var preview *policy.PreviewResult
 		if path == "policy/sandbox.yaml" && ctx.Request.URL.Query().Get("policyPreview") == "1" {
 			if file, fileErr := store.File(cellID, path); fileErr == nil {
@@ -190,6 +193,14 @@ func main() {
 	if err := app.ListenAndServe(addr); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func mobileShellRequest(request *http.Request) bool {
+	if strings.EqualFold(request.URL.Query().Get("shell"), "mobile") || request.Header.Get("Sec-CH-UA-Mobile") == "?1" {
+		return true
+	}
+	agent := strings.ToLower(request.UserAgent())
+	return strings.Contains(agent, "iphone") || strings.Contains(agent, "ipad") || strings.Contains(agent, "android") || strings.Contains(agent, "mobile")
 }
 
 func internalMTLSServer(handler http.Handler) (*http.Server, error) {

@@ -66,6 +66,26 @@ func TestPolicyEditorRequiresPreviewBeforeApplyAndRendersBlastRadius(t *testing.
 	}
 }
 
+func TestMobileShellIsWatchSteerApproveWithoutAuthoringSurfaces(t *testing.T) {
+	state := model.State{Cells: []model.CellSnapshot{{Cell: model.Cell{
+		ID: "cell-mobile", Status: model.CellReady, SandboxProfile: "strict", EvidenceHealth: "healthy",
+		Files:   []model.File{{Path: "policy/sandbox.yaml", Language: "yaml", Content: "profile: strict\n"}},
+		Reviews: []model.Review{{ID: "review-1", Title: "Entity change", Summary: "Function changed", Status: "pending", CommitReady: true, EvidenceHealth: "healthy", SecretScanStatus: "clean"}},
+		Shadows: []model.ShadowRevision{{ID: "shadow-1", URI: "shadow://cell-mobile/a.go/shadow-1", Path: "a.go", Author: "agent", Status: "open", Before: "old", After: "new"}},
+	}, Events: []model.Event{{Kind: model.EventIntent, Action: "test.run", Summary: "Agent claims tests passed"}, {Kind: model.EventKernel, Action: "process.exec", Summary: "Observed test runner"}}}}}
+	html := gosx.RenderHTML(MobilePage(state, "cell-mobile", "csrf-token"))
+	for _, want := range []string{`data-shell="mobile"`, `data-typing-first="false"`, `aria-label="Cell fleet"`, `AGENT REPORTED / INTENT`, `KERNEL / HORIZON`, `action="/gosx/action/prompt"`, `action="/gosx/action/approve-review"`, `action="/gosx/action/reject-review"`, `action="/gosx/action/adopt-shadow"`} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("mobile shell missing %q in %s", want, html)
+		}
+	}
+	for _, forbidden := range []string{`data-gosx-code-surface`, `/editor/`, `/intelligence/`, `name="content"`, `apply-policy`, `preview-policy`, `merge-shadow`, `discard-shadow`, `secret:read`} {
+		if strings.Contains(html, forbidden) {
+			t.Fatalf("mobile shell exposes forbidden authoring surface %q in %s", forbidden, html)
+		}
+	}
+}
+
 func TestConfigAndDSLFilesUseServerCodeIntelligence(t *testing.T) {
 	for _, file := range []model.File{
 		{Path: "config.yaml", Language: "yaml", Content: "enabled: true\n"},

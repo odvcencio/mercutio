@@ -2,11 +2,31 @@ package main
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestMobileShellSelectionUsesExplicitHintOrMobileClient(t *testing.T) {
+	explicit := httptest.NewRequest("GET", "/?shell=mobile", nil)
+	clientHint := httptest.NewRequest("GET", "/", nil)
+	clientHint.Header.Set("Sec-CH-UA-Mobile", "?1")
+	userAgent := httptest.NewRequest("GET", "/", nil)
+	userAgent.Header.Set("User-Agent", "Mozilla/5.0 (iPhone; Mobile)")
+	for _, request := range []*http.Request{explicit, clientHint, userAgent} {
+		if !mobileShellRequest(request) {
+			t.Fatalf("mobile request not detected: %+v", request)
+		}
+	}
+	desktop := httptest.NewRequest("GET", "/", nil)
+	desktop.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64)")
+	if mobileShellRequest(desktop) {
+		t.Fatal("desktop client was forced into mobile shell")
+	}
+}
 
 func TestDoctorStatesActualEnforcementRung(t *testing.T) {
 	root := t.TempDir()

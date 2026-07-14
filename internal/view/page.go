@@ -38,6 +38,36 @@ func PageWithPolicyPreview(state model.State, selectedCellID, selectedPath, csrf
 	)
 }
 
+// MobilePage is the watching-first shell. It intentionally has no editor,
+// policy surface, secret reveal, or manual merge controls.
+func MobilePage(state model.State, selectedCellID, csrfToken string) gosx.Node {
+	cell := activeCell(state, selectedCellID)
+	items := make([]gosx.Node, 0, len(state.Cells))
+	for i := range state.Cells {
+		candidate := &state.Cells[i]
+		className := "mobile-cell-card"
+		if cell != nil && candidate.ID == cell.ID {
+			className += " active"
+		}
+		items = append(items, gosx.El("a", gosx.Attrs(gosx.Attr("class", className), gosx.Attr("href", "/?shell=mobile&cell="+url.QueryEscape(candidate.ID))),
+			gosx.El("strong", gosx.Text(candidate.ID)),
+			gosx.El("span", gosx.Text(fmt.Sprintf("%s · evidence %s · divergences %d", candidate.Status, candidate.EvidenceHealth, len(candidate.Divergences)))),
+		))
+	}
+	content := []gosx.Node{gosx.El("nav", gosx.Attrs(gosx.Attr("class", "mobile-fleet"), gosx.Attr("aria-label", "Cell fleet")), gosx.Fragment(items...))}
+	if cell != nil {
+		content = append(content,
+			gosx.El("section", gosx.Attrs(gosx.Attr("class", "mobile-cell-heading")),
+				gosx.El("strong", gosx.Text(cell.ID)),
+				gosx.El("span", gosx.Text(string(cell.Status)+" · "+string(cell.Sandbox.Phase)+" · "+cell.SandboxProfile)),
+			),
+			actionForm(csrfToken, "prompt", "prompt-bar mobile-steer", hidden("cellID", cell.ID), hidden("path", ""), gosx.El("div", gosx.Attrs(gosx.Attr("class", "prompt-icon")), gosx.Text("↗")), gosx.El("input", gosx.Attrs(gosx.Attr("name", "prompt"), gosx.Attr("placeholder", "Steer the agent…"), gosx.Attr("autocomplete", "off"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("class", "prompt-button"), gosx.Attr("type", "submit")), gosx.Text("Send"))),
+			renderObservabilityWithOptions(cell, nil, csrfToken, true),
+		)
+	}
+	return gosx.El("main", gosx.Attrs(gosx.Attr("class", "app-shell mobile-shell"), gosx.Attr("data-shell", "mobile"), gosx.Attr("data-typing-first", "false")), renderTopbar(state.Connected), gosx.El("div", gosx.Attrs(gosx.Attr("class", "mobile-content")), gosx.Fragment(content...)))
+}
+
 func renderTopbar(connected int) gosx.Node {
 	return gosx.El("header", gosx.Attrs(gosx.Attr("class", "topbar")),
 		gosx.El("div", gosx.Attrs(gosx.Attr("class", "brand")), gosx.El("span", gosx.Attrs(gosx.Attr("class", "brand-mark")), gosx.Text("M")), gosx.El("span", gosx.Attrs(gosx.Attr("class", "brand-name")), gosx.Text("mercutio"))),
@@ -289,6 +319,10 @@ func editorSubmitLabel(path string) string {
 }
 
 func renderObservability(cell *model.CellSnapshot, file *model.File, csrfToken string) gosx.Node {
+	return renderObservabilityWithOptions(cell, file, csrfToken, false)
+}
+
+func renderObservabilityWithOptions(cell *model.CellSnapshot, file *model.File, csrfToken string, mobile bool) gosx.Node {
 	if cell == nil {
 		return gosx.El("aside", gosx.Attrs(gosx.Attr("class", "observability")), gosx.El("div", gosx.Attrs(gosx.Attr("class", "empty-feed")), gosx.Text("No active cell.")))
 	}
@@ -330,7 +364,11 @@ func renderObservability(cell *model.CellSnapshot, file *model.File, csrfToken s
 	for _, shadow := range cell.Shadows {
 		shadowChildren := []gosx.Node{gosx.El("strong", gosx.Text("Shadow Revision · "+shadow.Author)), gosx.El("code", gosx.Text(shadow.URI)), gosx.El("span", gosx.Text(shadow.Path+" · "+shadow.Reason)), gosx.El("span", gosx.Text("status: "+shadow.Status)), gosx.El("span", gosx.Text("conflicts: "+strings.Join(shadow.Conflicts, ", "))), gosx.El("details", gosx.El("summary", gosx.Text("View before / after")), gosx.El("div", gosx.Attrs(gosx.Attr("class", "shadow-diff")), gosx.El("pre", gosx.Text(shadow.Before)), gosx.El("pre", gosx.Text(shadow.After))))}
 		if shadow.Status == "open" {
-			shadowChildren = append(shadowChildren, actionForm(csrfToken, "merge-shadow", "shadow-action", hidden("cellID", cell.ID), hidden("shadowID", shadow.ID), hidden("path", path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Structural merge"))), actionForm(csrfToken, "adopt-shadow", "shadow-action", hidden("cellID", cell.ID), hidden("shadowID", shadow.ID), hidden("path", path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Adopt agent version"))), actionForm(csrfToken, "discard-shadow", "shadow-action", hidden("cellID", cell.ID), hidden("shadowID", shadow.ID), hidden("path", path), gosx.El("input", gosx.Attrs(gosx.Attr("name", "reason"), gosx.Attr("placeholder", "Required discard reason"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Discard with receipt"))))
+			if mobile {
+				shadowChildren = append(shadowChildren, actionForm(csrfToken, "adopt-shadow", "shadow-action", hidden("cellID", cell.ID), hidden("shadowID", shadow.ID), hidden("path", path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Adopt agent version"))))
+			} else {
+				shadowChildren = append(shadowChildren, actionForm(csrfToken, "merge-shadow", "shadow-action", hidden("cellID", cell.ID), hidden("shadowID", shadow.ID), hidden("path", path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Structural merge"))), actionForm(csrfToken, "adopt-shadow", "shadow-action", hidden("cellID", cell.ID), hidden("shadowID", shadow.ID), hidden("path", path), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Adopt agent version"))), actionForm(csrfToken, "discard-shadow", "shadow-action", hidden("cellID", cell.ID), hidden("shadowID", shadow.ID), hidden("path", path), gosx.El("input", gosx.Attrs(gosx.Attr("name", "reason"), gosx.Attr("placeholder", "Required discard reason"), gosx.BoolAttr("required"))), gosx.El("button", gosx.Attrs(gosx.Attr("type", "submit")), gosx.Text("Discard with receipt"))))
+			}
 		}
 		children = append(children, gosx.El("section", gosx.Attrs(gosx.Attr("class", "shadow-card")), gosx.Fragment(shadowChildren...)))
 	}
