@@ -20,13 +20,18 @@ curl -fsS "http://127.0.0.1:$port/healthz" >/dev/null
 created="$(curl -fsS -H 'Content-Type: application/json' -d '{"repoURL":"https://github.com/example/e2e","branch":"main","profile":"standard"}' "http://127.0.0.1:$port/api/cells")"
 cell_id="$(printf '%s' "$created" | sed -n 's/^{"id":"\([^"]*\)".*/\1/p')"
 test -n "$cell_id"
-for index in $(seq 2 49); do
+fallback_created="$(curl -fsS -H 'Content-Type: application/json' -d '{"repoURL":"https://github.com/example/e2e-fallback","branch":"main","profile":"standard"}' "http://127.0.0.1:$port/api/cells")"
+fallback_cell_id="$(printf '%s' "$fallback_created" | sed -n 's/^{"id":"\([^"]*\)".*/\1/p')"
+test -n "$fallback_cell_id"
+for index in $(seq 3 49); do
   curl -fsS -H 'Content-Type: application/json' -d "{\"repoURL\":\"https://github.com/example/e2e-$index\",\"branch\":\"main\",\"profile\":\"standard\"}" "http://127.0.0.1:$port/api/cells" >/dev/null
 done
 curl -fsS -H 'Content-Type: application/json' -d '{"path":"cmd/hello/main.go","content":"package main\n\nfunc main() {}\n"}' "http://127.0.0.1:$port/api/cells/$cell_id/edit" >/dev/null
+curl -fsS -H 'Content-Type: application/json' -d '{"path":"cmd/fallback/main.go","content":"package main\n\nfunc main() {}\n"}' "http://127.0.0.1:$port/api/cells/$fallback_cell_id/edit" >/dev/null
 MERCUTIO_E2E_URL="http://127.0.0.1:$port/?cell=$cell_id&file=cmd%2Fhello%2Fmain.go" \
+  MERCUTIO_E2E_FALLBACK_URL="http://127.0.0.1:$port/?cell=$fallback_cell_id&file=cmd%2Ffallback%2Fmain.go" \
   MERCUTIO_E2E_PEER_URL="http://127.0.0.1:$port/?cell=cell-demo&file=main.go" \
   MERCUTIO_E2E_CELL_ID="$cell_id" \
   MERCUTIO_E2E_CELL_COUNT=50 \
   MERCUTIO_CHROME="${MERCUTIO_CHROME:-/usr/bin/google-chrome}" \
-  "${GO:-go}" test ./internal/e2e -run 'TestGoSXEditorIntelligence|TestOrreryScaleAndPerformance|TestPeerEditLatencyBudget' -count=1
+  "${GO:-go}" test ./internal/e2e -run 'TestGoSXEditorIntelligence|TestGoSXEditorFallsBackToServerWithoutWASM|TestOrreryScaleAndPerformance|TestPeerEditLatencyBudget' -count=1

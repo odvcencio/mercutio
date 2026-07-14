@@ -127,7 +127,7 @@ func renderEditor(cell *model.CellSnapshot, file *model.File, csrfToken string) 
 		ExtraFields:      map[string]string{"cellID": cell.ID, "path": file.Path},
 		Buttons:          []gosxeditor.FormButton{{Name: "editor_action", Value: "save", Label: editorSubmitLabel(file.Path), Class: "save-button"}},
 		Collaboration:    &gosxeditor.Collaboration{HubURL: "/gosx/hub/cells?cellID=" + url.QueryEscape(cell.ID), CapabilityURL: "/api/cells/" + url.PathEscape(cell.ID) + "/capability", CellID: cell.ID, Path: file.Path, BinarySplices: true},
-		CodeIntelligence: editorIntelligence(file.Language),
+		CodeIntelligence: editorIntelligence(cell.ID, file.Language),
 	})
 	return gosx.El("section", gosx.Attrs(gosx.Attr("class", "editor-column"), gosx.Attr("data-gosx-code-surface", "true"), gosx.Attr("data-language", file.Language)),
 		gosx.El("div", gosx.Attrs(gosx.Attr("class", "editor-toolbar")), gosx.El("div", gosx.Attrs(gosx.Attr("class", "file-tabs")), gosx.Fragment(tabs...)), gosx.El("span", gosx.Attrs(gosx.Attr("class", "revision")), gosx.Text(fmt.Sprintf("rev %d", cell.Revision)))),
@@ -200,18 +200,25 @@ func renderFileTreeNode(node *fileTreeNode, prefix, cellID, selectedPath string)
 	return children
 }
 
-func editorIntelligence(language string) *gosxeditor.CodeIntelligence {
-	if !strings.EqualFold(language, "go") {
+func editorIntelligence(cellID, language string) *gosxeditor.CodeIntelligence {
+	language = strings.ToLower(language)
+	switch language {
+	case "go", "yaml", "toml", "json", "hcl", "markdown", "arbiter", "horizon":
+	default:
 		return nil
 	}
-	return &gosxeditor.CodeIntelligence{
-		Language:          "go",
-		WasmExecURL:       "/intelligence/wasm_exec.js",
-		RuntimeURL:        "/intelligence/gotreesitter.wasm",
-		GrammarURL:        "/intelligence/go.bin",
-		HighlightQueryURL: "/intelligence/go-highlights.scm",
-		TagsQueryURL:      "/intelligence/go-tags.scm",
+	intelligence := &gosxeditor.CodeIntelligence{
+		Language:  language,
+		ServerURL: "/api/cells/" + url.PathEscape(cellID) + "/analyze",
 	}
+	if language == "go" {
+		intelligence.WasmExecURL = "/intelligence/wasm_exec.js"
+		intelligence.RuntimeURL = "/intelligence/gotreesitter.wasm"
+		intelligence.GrammarURL = "/intelligence/go.bin"
+		intelligence.HighlightQueryURL = "/intelligence/go-highlights.scm"
+		intelligence.TagsQueryURL = "/intelligence/go-tags.scm"
+	}
+	return intelligence
 }
 
 func editorLanguage(language string) gosxeditor.Lang {

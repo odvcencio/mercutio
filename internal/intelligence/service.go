@@ -33,7 +33,7 @@ func New() *Service { return &Service{documents: make(map[string]*incrementalDoc
 
 func (s *Service) Analyze(path, language, content string) model.Analysis {
 	result := model.Analysis{Path: path, Language: language}
-	entry := grammars.DetectLanguage(path)
+	entry := grammars.DetectLanguage(parserPath(path))
 	if entry == nil {
 		return result
 	}
@@ -101,7 +101,8 @@ func (s *Service) Analyze(path, language, content string) model.Analysis {
 // supplied by the caller so two cells can edit the same path independently.
 func (s *Service) AnalyzeIncremental(key, path, language, content string) model.Analysis {
 	result := model.Analysis{Path: path, Language: language}
-	entry := grammars.DetectLanguage(path)
+	parsePath := parserPath(path)
+	entry := grammars.DetectLanguage(parsePath)
 	if entry == nil {
 		return result
 	}
@@ -119,11 +120,11 @@ func (s *Service) AnalyzeIncremental(key, path, language, content string) model.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state := s.documents[key]
-	if state == nil || state.path != path || state.language != result.Language {
+	if state == nil || state.path != parsePath || state.language != result.Language {
 		if state != nil {
 			state.release()
 		}
-		state = &incrementalDocument{path: path, language: result.Language}
+		state = &incrementalDocument{path: parsePath, language: result.Language}
 		state.highlighter, state.tagger, result.Error = newAnalyzers(entry, lang)
 		if state.highlighter == nil && state.tagger == nil {
 			// Preserve the full parser fallback for grammars without editor
@@ -173,6 +174,23 @@ func (s *Service) AnalyzeIncremental(key, path, language, content string) model.
 	}
 	state.source = append(state.source[:0], source...)
 	return result
+}
+
+// parserPath projects Mercutio-owned DSLs onto compatible gotreesitter
+// grammars until those languages ship dedicated grammar blobs. The original
+// path and language remain in the public analysis result.
+func parserPath(path string) string {
+	lower := strings.ToLower(path)
+	switch {
+	case strings.HasSuffix(lower, ".mdpp"):
+		return path + ".md"
+	case strings.HasSuffix(lower, ".arb"):
+		return path + ".hcl"
+	case strings.HasSuffix(lower, ".hzn"):
+		return path + ".go"
+	default:
+		return path
+	}
 }
 
 func newAnalyzers(entry *grammars.LangEntry, lang *gts.Language) (*gts.Highlighter, *gts.Tagger, string) {

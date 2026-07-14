@@ -252,6 +252,38 @@ func TestGoSXEditorIntelligence(t *testing.T) {
 	}
 }
 
+func TestGoSXEditorFallsBackToServerWithoutWASM(t *testing.T) {
+	target := envOr("MERCUTIO_E2E_FALLBACK_URL", os.Getenv("MERCUTIO_E2E_URL"))
+	if target == "" {
+		t.Skip("set MERCUTIO_E2E_URL to an authenticated Go file editor page")
+	}
+	options := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.ExecPath(envOr("MERCUTIO_CHROME", "/usr/bin/google-chrome")),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-dev-shm-usage", true),
+	)
+	allocator, cancelAllocator := chromedp.NewExecAllocator(context.Background(), options...)
+	defer cancelAllocator()
+	ctx, cancelBrowser := chromedp.NewContext(allocator)
+	defer cancelBrowser()
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	if err := chromedp.Run(ctx,
+		network.Enable(),
+		network.SetBlockedURLs().WithURLPatterns([]*network.BlockPattern{{URLPattern: "*://*:*/*gotreesitter.wasm*", Block: true}}),
+		chromedp.Navigate(target),
+		chromedp.WaitVisible("#editor-content", chromedp.ByQuery),
+		chromedp.Poll(`document.querySelector("form[data-code-intelligence-server]")?.dataset.codeIntelligenceLane === "server"`, nil, chromedp.WithPollingTimeout(15*time.Second)),
+		chromedp.Poll(`document.querySelectorAll("#editor-highlight-content [class^=syntax-]").length > 0`, nil, chromedp.WithPollingTimeout(5*time.Second)),
+		chromedp.Poll(`document.querySelector("#editor-outline-headings")?.textContent.includes("main")`, nil, chromedp.WithPollingTimeout(5*time.Second)),
+	); err != nil {
+		var debug any
+		_ = chromedp.Run(ctx, chromedp.Evaluate(`({lane:document.querySelector("form[data-code-intelligence-server]")?.dataset.codeIntelligenceLane,highlights:document.querySelectorAll("#editor-highlight-content [class^=syntax-]").length,outline:document.querySelector("#editor-outline-headings")?.textContent,diagnostic:document.querySelector("#editor-diagnostics")?.textContent})`, &debug))
+		t.Fatalf("server code-intelligence fallback: %v; debug=%+v", err, debug)
+	}
+}
+
 func TestOrreryScaleAndPerformance(t *testing.T) {
 	target := os.Getenv("MERCUTIO_E2E_URL")
 	if target == "" {

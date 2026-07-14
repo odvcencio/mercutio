@@ -18,3 +18,26 @@ func TestAnalyzeIncrementalMatchesFreshAnalysis(t *testing.T) {
 		t.Fatalf("incremental symbol = %+v", updated.Symbols[0])
 	}
 }
+
+func TestAnalyzeSupportsMercutioConfigAndDSLLanes(t *testing.T) {
+	tests := []struct {
+		path, language, source string
+	}{
+		{"config.yaml", "yaml", "enabled: true\nname: mercutio\n"},
+		{"config.toml", "toml", "enabled = true\nname = \"mercutio\"\n"},
+		{"config.json", "json", "{\"enabled\": true, \"name\": \"mercutio\"}\n"},
+		{"policy.hcl", "hcl", "profile \"strict\" { enabled = true }\n"},
+		{"guide.mdpp", "markdown", "# Mercutio\n\n**ready**\n"},
+		{"policy.arb", "arbiter", "rule Allow priority 1 { when { action == \"read\" } then Allow { reason: \"safe\" } }\n"},
+		{"program.hzn", "horizon", "package demo\n\nfunc allow(value u32) bool { return value > 0 }\n"},
+	}
+	service := New()
+	for _, test := range tests {
+		t.Run(test.language, func(t *testing.T) {
+			analysis := service.AnalyzeIncremental("cell-1:"+test.path, test.path, test.language, test.source)
+			if analysis.Path != test.path || analysis.Error != "" || len(analysis.Highlights) == 0 {
+				t.Fatalf("analysis = %+v", analysis)
+			}
+		})
+	}
+}

@@ -2362,6 +2362,10 @@ func languageFor(path string) string {
 		return "markdown"
 	case ".hcl":
 		return "hcl"
+	case ".arb":
+		return "arbiter"
+	case ".hzn":
+		return "horizon"
 	default:
 		return "text"
 	}

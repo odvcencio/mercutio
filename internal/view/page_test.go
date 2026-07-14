@@ -28,6 +28,7 @@ func TestPageUsesGoSXActionsWithoutApplicationScripts(t *testing.T) {
 		`/editor/collaborative-editor.js`,
 		`/editor/code-intelligence.js`,
 		`data-code-intelligence-runtime="/intelligence/gotreesitter.wasm"`,
+		`data-code-intelligence-server="/api/cells/cell-1/analyze"`,
 		`name="csrf_token" value="csrf-token"`,
 		`package main`,
 	} {
@@ -38,6 +39,25 @@ func TestPageUsesGoSXActionsWithoutApplicationScripts(t *testing.T) {
 	for _, forbidden := range []string{"app.js", "login.js", "initial-state"} {
 		if strings.Contains(html, forbidden) {
 			t.Fatalf("viewport contains application script contract %q", forbidden)
+		}
+	}
+}
+
+func TestConfigAndDSLFilesUseServerCodeIntelligence(t *testing.T) {
+	for _, file := range []model.File{
+		{Path: "config.yaml", Language: "yaml", Content: "enabled: true\n"},
+		{Path: "policy.arb", Language: "arbiter", Content: "rule Allow {}\n"},
+		{Path: "program.hzn", Language: "horizon", Content: "package demo\n"},
+	} {
+		state := model.State{Cells: []model.CellSnapshot{{Cell: model.Cell{ID: "cell-1", Status: model.CellReady, Files: []model.File{file}}}}}
+		html := gosx.RenderHTML(Page(state, "cell-1", file.Path, "csrf-token"))
+		for _, want := range []string{`data-code-intelligence-language="` + file.Language + `"`, `data-code-intelligence-server="/api/cells/cell-1/analyze"`} {
+			if !strings.Contains(html, want) {
+				t.Fatalf("%s editor missing %q in %s", file.Path, want, html)
+			}
+		}
+		if strings.Contains(html, `data-code-intelligence-runtime=`) {
+			t.Fatalf("%s should use the server lane directly", file.Path)
 		}
 	}
 }
